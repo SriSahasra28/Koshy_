@@ -1,0 +1,2 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-11-12 11:15:00,HDFCBANK25NOV995CE,15minute,14.95,14.95,14.65,14.65,0,14.38,14.95,14.38,14.8,13.35,1,73.0,66.9,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-11-12 11:31:18,

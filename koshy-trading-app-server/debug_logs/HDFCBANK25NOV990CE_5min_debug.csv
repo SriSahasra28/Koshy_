@@ -1,0 +1,8 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-11-10 12:10:00,HDFCBANK25NOV990CE,5minute,15.85,16.05,15.85,15.95,0,15.59,16.05,15.59,15.92,15.25,1,42.54,27.46,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-11-10 12:16:09,
+2025-11-10 13:30:00,HDFCBANK25NOV990CE,5minute,15.25,15.4,15.2,15.4,0,14.95,15.4,14.95,15.31,14.55,1,57.76,37.25,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-11-10 13:36:07,
+2025-11-10 14:25:00,HDFCBANK25NOV990CE,5minute,14.85,14.95,14.7,14.7,0,14.52,14.95,14.52,14.8,14.05,1,63.37,45.37,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-11-10 14:31:03,
+2025-11-12 10:40:00,HDFCBANK25NOV990CE,5minute,17.1,17.35,17.1,17.35,0,16.62,17.35,16.62,17.23,15.95,1,36.88,23.85,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-11-12 10:46:05,
+2025-11-12 12:05:00,HDFCBANK25NOV990CE,5minute,17.25,17.3,17.25,17.3,0,16.86,17.3,16.86,17.27,16.5,1,37.04,30.86,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-11-12 12:11:12,
+2025-11-12 12:35:00,HDFCBANK25NOV990CE,5minute,17.45,17.8,17.35,17.8,0,17.05,17.8,17.05,17.6,16.55,1,77.45,56.37,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-11-12 12:41:04,
+2025-11-12 13:45:00,HDFCBANK25NOV990CE,5minute,16.75,16.85,16.7,16.7,0,16.69,16.85,16.69,16.75,16.05,1,36.04,27.84,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-11-12 13:51:08,

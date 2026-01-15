@@ -1,0 +1,36 @@
+.groups-page {
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    margin-bottom: 30px;
+    margin-top: 30px;
+  }
+
+  .groups-list {
+    .group-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid #dadada;
+      margin-bottom: 10px;
+
+      .group-name {
+        text-decoration: none;
+      }
+    }
+  }
+}
+
+.delete_btn {
+  width: 40px;
+}
+
+.home_back_btn {
+  a {
+    text-decoration: none !important;
+  }
+}

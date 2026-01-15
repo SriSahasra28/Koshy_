@@ -1,0 +1,2 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-10-29 13:25:00,ADANIPORTS25NOV1340PE,2minute,5.55,5.55,5.55,5.55,0,5.51,5.55,5.51,5.55,5.57,0,8.67,11.47,False,False,green,2,False,False,25,G6 B - S1,6,10.0,100.0,1,2025-10-29 13:28:14,"K value 8.671882500731176 out of range [10, 100]"

@@ -1,0 +1,64 @@
+.accordion-like {
+    border: 1px solid #dee2e6;
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+.title-cn {
+    background-color: #f8f9fa;
+    border-radius: 10px 10px 0 0;
+    padding: 15px;
+    margin: -15px -15px 0 -15px;
+}
+.body-cn {
+    display: flex;
+    background-color: #ffffff;
+    border-radius: 0 0 10px 10px;
+    padding: 15px;
+}
+.left-panel {
+    background-color: #f8f9fa;
+    border-radius: 10px 0 0 10px;
+    width: 25%;
+    padding: 15px;
+}
+.right-panel {
+    background-color: #ffffff;
+    border-radius: 0 10px 10px 0;
+    width: 75%;
+    padding: 15px;
+}
+.scan-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.scan-item i {
+    cursor: pointer;
+}
+.form-inline .form-control, 
+.form-inline .btn,
+.form-inline label {
+    margin-right: 20px;
+}
+.form-inline label {
+    margin-left: 10px;
+}
+.form-inline .btn {
+    margin-right: 0;
+}
+.row-4 {
+    display: flex;
+    align-items: center;
+}
+.row-4 > *:not(:last-child) {
+    margin-right: 10px;
+}
+
+@media (max-width: 768px) {
+    .responsive-row {
+      flex-direction: column;
+    }
+  }
+  

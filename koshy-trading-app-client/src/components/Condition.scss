@@ -1,0 +1,176 @@
+.form-control {
+    width: 200px; /* Set width to 200px */
+    display: inline-block;
+    margin-right: 5px;
+    margin-bottom: 0;
+}
+.accordion-like {
+    border: 1px solid #dee2e6;
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+.title-cn {
+    background-color: #f8f9fa;
+    border-radius: 10px 10px 0 0;
+    padding: 15px;
+    margin: -15px -15px 0 -15px;
+}
+.body-cn {
+    display: flex;
+    background-color: #ffffff;
+    border-radius: 0 0 10px 10px;
+    padding: 15px;
+}
+.left-panel {
+    background-color: #f8f9fa;
+    border-radius: 10px 0 0 10px;
+    width: 30%;
+    padding: 15px;
+}
+.right-panel {
+    background-color: #ffffff;
+    border-radius: 0 10px 10px 0;
+    width: 70%;
+    padding: 15px;
+}
+.scan-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.scan-item i {
+    cursor: pointer;
+}
+.form-inline .form-control, 
+.form-inline .btn,
+.form-inline label {
+    margin-right: 20px;
+}
+.form-inline label {
+    margin-left: 10px;
+}
+.form-inline .btn {
+    margin-right: 0;
+}
+.row-4 {
+    display: flex;
+    align-items: center;
+}
+.row-4 > *:not(:last-child) {
+    margin-right: 10px;
+}
+.tab-control-container {
+    border: 1px solid #dee2e6;
+    border-radius: 10px;
+    padding: 15px;
+}
+.tab-pane {
+    padding: 10px;
+    min-height: 200px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid #dee2e6;
+}
+th, td {
+    border: 1px solid #dee2e6;
+    padding: 8px;
+    text-align: left;
+}
+th {
+    background-color: #f8f9fa;
+    text-align: center;
+}
+.radio-label {
+    display: inline-block;
+    margin-right: 10px;
+}
+td[colspan="2"] {
+    text-align: center;
+}
+.d-flex {
+    display: flex;
+  }
+  .justify-content-between {
+    justify-content: space-between;
+  }
+
+  /* Additional styling for better visualization */
+  .tab-heading {
+    margin: 0;
+  }
+/* Responsive styles */
+@media (max-width: 768px) {
+    .body-cn {
+      flex-direction: column;
+    }
+  
+    .left-panel {
+      width: 100% !important;
+      margin-bottom: 20px;
+    }
+  
+    .right-panel {
+      width: 100%;
+    }
+  
+    .form-group {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  
+    .form-group label {
+      margin-bottom: 5px;
+    }
+  
+    .form-group select, .form-group input {
+      width: 100%;
+    }
+  
+    .btn {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+  
+    table {
+      width: 100%;
+    }
+  
+    table thead th, table tbody td {
+      padding: 10px;
+      text-align: center;
+    }
+  
+    .btn-group {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    
+    @media (max-width: 768px) {
+        .d-flex {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+  
+        .btn {
+          margin-top: 10px; /* Space between the h4 and the button */
+        }
+        .tab-control-container{
+          padding: 10px;
+        }
+        .right-panel{
+          width: 100%;
+          margin: auto;
+        }
+        .body-cn{
+          padding: 5px;
+        }
+        td select{
+          // min-width: 150px;
+          width: 100% !important; 
+        }
+      }
+  }

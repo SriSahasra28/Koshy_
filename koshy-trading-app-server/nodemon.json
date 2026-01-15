@@ -1,0 +1,4 @@
+{
+  "watch": ["controllers", ".env", "routes"],
+  "ext": "js,json"
+}

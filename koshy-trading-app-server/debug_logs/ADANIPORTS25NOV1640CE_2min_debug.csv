@@ -1,0 +1,5 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-10-29 13:27:00,ADANIPORTS25NOV1640CE,2minute,4.35,4.35,4.3,4.35,0,4.4,4.4,4.3,4.34,4.61,0,70.29,77.61,True,False,red,2,False,False,25,G6 B - S1,6,10.0,100.0,1,2025-10-29 13:30:10,"PSAR signal mismatch: expected 1, got 0.0"
+2025-10-29 13:31:00,ADANIPORTS25NOV1640CE,2minute,4.45,4.6,4.45,4.55,0,4.39,4.6,4.39,4.51,4.3,1,70.29,77.22,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-10-29 13:34:08,
+2025-10-29 14:57:00,ADANIPORTS25NOV1640CE,2minute,4.1,4.2,4.1,4.2,0,4.12,4.2,4.1,4.15,0,0,0,0,False,False,green,0,False,False,0,Pre-check log,0,0,0,0,2025-10-29 15:00:04,Candle received - not yet evaluated for conditions
+2025-10-29 14:57:00,ADANIPORTS25NOV1640CE,2minute,4.1,4.2,4.1,4.2,0,4.12,4.2,4.1,4.15,4.31,0,0.0,0.0,False,False,green,2,False,False,25,G6 B - S1,6,10.0,100.0,1,2025-10-29 15:00:04,"K value 0.00 out of range [10, 100]"

@@ -1,0 +1,2 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-10-30 11:57:00,BANKNIFTY25NOV58300PE,2minute,622.9,631.25,622.65,629.8,0,622.77,631.25,622.65,626.65,606.06,0,54.14,58.36,True,False,green,2,False,False,25,G6 B - S1,6,10.0,100.0,1,2025-10-30 11:59:53,"PSAR signal mismatch: expected 1, got 0.0"

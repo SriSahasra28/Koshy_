@@ -1,0 +1,131 @@
+.accordion-like {
+    border: 1px solid #dee2e6;
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+.title-cn {
+    background-color: #f8f9fa;
+    border-radius: 10px 10px 0 0;
+    padding: 15px;
+    margin: -15px -15px 0 -15px;
+}
+.body-cn {
+    display: flex;
+    background-color: #ffffff;
+    border-radius: 0 0 10px 10px;
+    padding: 15px;
+}
+.left-panel {
+    background-color: #f8f9fa;
+    border-radius: 10px 0 0 10px;
+    width: 25%;
+    padding: 15px;
+}
+.right-panel {
+    background-color: #ffffff;
+    border-radius: 0 10px 10px 0;
+    width: 75%;
+    padding: 15px;
+}
+.scan-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.scan-item i {
+    cursor: pointer;
+}
+.form-group {
+    margin-bottom: 15px;
+}
+.grid-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+.grid-row > * {
+    margin-right: 10px;
+}
+.grid-row > *:last-child {
+    margin-right: 0;
+}
+.row-4 {
+    display: flex;
+    align-items: center;
+}
+.row-4 > *:not(:last-child) {
+    margin-right: 10px;
+}
+.timeframes {
+    display: flex;
+    flex-wrap: wrap;
+}
+.timeframes label {
+    margin-right: 10px;
+}
+.small-select {
+    width: 150px;
+}
+.small-button {
+    padding: 5px 10px;
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+    .body-cn {
+      flex-direction: column;
+    }
+  
+    .left-panel {
+      width: 100% !important;
+      margin-bottom: 20px;
+    }
+  
+    .right-panel {
+      width: 100%;
+    }
+  
+    .form-group {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  
+    .form-group label {
+      margin-bottom: 5px;
+    }
+  
+    .form-group select, .form-group input {
+      width: 100%;
+    }
+  
+    .btn {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+  
+    table {
+      width: 100%;
+    }
+  
+    table thead th, table tbody td {
+      padding: 10px;
+      text-align: center;
+    }
+  
+    .btn-group {
+      flex-direction: column;
+      align-items: stretch;
+    }
+      .title-cn {
+        flex-direction: row !important;
+      }
+      .title-cn .m-2, .title-cn .home_back_btn {
+        flex: 1;
+      }
+      .home_back_btn {
+        text-align: right;
+      }
+  }

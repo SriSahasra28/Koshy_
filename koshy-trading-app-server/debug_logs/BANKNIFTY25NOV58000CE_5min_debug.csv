@@ -1,0 +1,2 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-10-30 12:50:00,BANKNIFTY25NOV58000CE,5minute,1006.45,1023.6,1006.0,1009.0,0,999.35,1023.6,999.35,1011.26,970.25,1,55.1,75.18,True,True,green,2,True,True,25,G6 B - S1,6,10.0,100.0,1,2025-10-30 12:55:07,

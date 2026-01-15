@@ -1,0 +1,2 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-10-29 14:55:00,ADANIPORTS25NOV1300PE,10minute,3.0,3.0,2.95,2.95,0,2.91,3.0,2.91,2.97,0,0,0,0,False,False,green,0,False,False,0,Pre-check log,0,0,0,0,2025-10-29 15:06:02,Candle received - not yet evaluated for conditions
