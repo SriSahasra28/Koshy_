@@ -1,0 +1,2 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-10-30 13:09:00,NIFTY25N0425750CE,2minute,255.2,255.9,254.2,255.45,0,255.18,255.9,254.2,255.19,246.91,0,9.53,14.61,False,False,green,2,False,False,25,G6 B - S1,6,10.0,100.0,1,2025-10-30 13:11:14,"K value 9.533777987368316 out of range [10, 100]"

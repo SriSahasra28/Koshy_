@@ -197,8 +197,8 @@ const DashboardDataTable = () => {
 
       if (
         eventData?.scrollHeight -
-          eventData?.scrollTop -
-          eventData?.clientHeight <
+        eventData?.scrollTop -
+        eventData?.clientHeight <
         1
       ) {
         fetchMoreData();
@@ -227,19 +227,30 @@ const DashboardDataTable = () => {
       .replace(":1000", ":8080")
       .replace("/api", "");
 
-    if (websocketUrl.startsWith("http://")) {
-      websocketUrl = websocketUrl.replace("http://", "ws://");
-    } else if (websocketUrl.startsWith("https://")) {
-      websocketUrl = websocketUrl.replace("https://", "wss://");
+    if (websocketUrl.includes('103.160.145.141')) {
+      websocketUrl = 'ws://103.160.145.141/ws';
+    } else {
+      if (websocketUrl.startsWith("http://")) {
+        websocketUrl = websocketUrl.replace("http://", "ws://");
+      } else if (websocketUrl.startsWith("https://")) {
+        websocketUrl = websocketUrl.replace("https://", "wss://");
+      }
     }
     console.log("WebSocket URL:", websocketUrl);
     websocketRef.current = new WebSocket(websocketUrl);
 
     websocketRef.current.onmessage = (event) => {
-      console.log("Received alert:", event.data);
-      fetchAlerts({
-        resetAlerts: true,
-      });
+      try {
+        const msg = JSON.parse(event.data);
+        // Only react to alert type messages
+        if (msg.type === 'alert') {
+          console.log("Received alert:", msg.data);
+          fetchAlerts({ resetAlerts: true });
+        }
+      } catch {
+        // Legacy plain-text alert message — still reload
+        fetchAlerts({ resetAlerts: true });
+      }
     };
 
     handleScrollInDataTableContainer();
@@ -281,9 +292,8 @@ const DashboardDataTable = () => {
   return (
     <div className="table_container" id="homepage-data-table-container">
       <div
-        className={`table_delete_container ${
-          selectedProducts?.length > 0 ? "" : "display_none"
-        }`}
+        className={`table_delete_container ${selectedProducts?.length > 0 ? "" : "display_none"
+          }`}
       >
         <Button label="Delete" onClick={deleteAlert} />
       </div>

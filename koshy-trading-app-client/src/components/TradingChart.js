@@ -14,9 +14,8 @@ import { useDispatch, useSelector } from "react-redux";
 import { ChartApis } from "../api/charts.apis";
 import { DataLoadingServices } from "../utils/common.services";
 
-// Development mode check for console.logs
 const isDev = process.env.NODE_ENV === 'development';
-const log = isDev ? console.log : () => {};
+const log = isDev ? console.log : () => { };
 
 let candleStickSeries = null;
 let upperRLSeries = null;
@@ -25,7 +24,6 @@ let lowerRLSeries = null;
 let stochKSeries = null;
 let stochDSeries = null;
 let chart = null;
-// let chart2 = null;
 let lineSeries = null;
 
 let zoomFactor = 1;
@@ -43,6 +41,18 @@ let stochData = null;
 let lrcData = null;
 let markersData = null;
 
+// ─── helpers for live Heikin-Ashi computation ────────────────────────────────
+function computeLiveHA(prevHA, rawBar) {
+  // prevHA: { open, close } of the last completed HA candle
+  // rawBar: { open, high, low, close } of the forming regular candle
+  const ha_close = (rawBar.open + rawBar.high + rawBar.low + rawBar.close) / 4;
+  const ha_open = prevHA ? (prevHA.open + prevHA.close) / 2 : (rawBar.open + rawBar.close) / 2;
+  const ha_high = Math.max(rawBar.high, ha_open, ha_close);
+  const ha_low = Math.min(rawBar.low, ha_open, ha_close);
+  return { open: ha_open, high: ha_high, low: ha_low, close: ha_close };
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function TradingChart({ instrumentToken, tickInterval }) {
   // Memoize selectors to prevent unnecessary re-renders
   const markersData = useSelector((state) => state?.header?.markersValues);
@@ -50,7 +60,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
   const minOptionValue = useSelector((state) => state?.header?.minOptionValue);
   const lrcData = useSelector((state) => state?.header?.lrcValues);
   const stochData = useSelector((state) => state?.header?.stochValues);
-  
+
   // Memoize destructured values
   const { acceleration, maxAcceleration, upColor, downColor, enabled } = useMemo(
     () => markersData || {},
@@ -79,7 +89,12 @@ function TradingChart({ instrumentToken, tickInterval }) {
   const [isChartPlotted, setIsChartPlotted] = useState(false);
   const [isHistoricalDataRefreshed, setRefreshHistoricalData] = useState(false);
 
-  let [tradingData, setTradingData] = useState(null); // State to hold trading data
+  let [tradingData, setTradingData] = useState(null);
+
+  // ref to the latest tradingData for use inside WS closure
+  const tradingDataRef = useRef(null);
+  // ref to WS connection for cleanup
+  const wsRef = useRef(null);
 
   const [LRLData, setLRLData] = useState([]);
   const [UCLData, setUCLData] = useState([]);
@@ -103,7 +118,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
           interval: minOptionValue,
         }),
       ]);
-      
+
       if (response?.success) {
         const updatedData = response.data?.map((element) => ({
           timestamp: element?.datetime,
@@ -125,13 +140,13 @@ function TradingChart({ instrumentToken, tickInterval }) {
         const closeArray = ohlcData.map((dataPoint) => dataPoint.close);
         const highArray = ohlcData.map((dataPoint) => dataPoint.high);
         const lowArray = ohlcData.map((dataPoint) => dataPoint.low);
-        
+
         // Check if indicator data is present in API response
-        const hasPreCalculatedPSAR = response.data && response.data.length > 0 && 
+        const hasPreCalculatedPSAR = response.data && response.data.length > 0 &&
           (response.data[0].psar_value !== undefined || response.data[0].psar_signal !== undefined);
-        const hasPreCalculatedStoch = response.data && response.data.length > 0 && 
+        const hasPreCalculatedStoch = response.data && response.data.length > 0 &&
           (response.data[0].stoch_k !== undefined || response.data[0].stoch_d !== undefined);
-        
+
         // Calculate indicators in parallel using Promise.all for better performance
         const [markersResult, stochResult, lrcResult, alertResult] = await Promise.all([
           // PSAR markers - use pre-calculated if available, otherwise calculate
@@ -143,9 +158,9 @@ function TradingChart({ instrumentToken, tickInterval }) {
               if (tickInterval !== '1min') {
                 dataLength = Math.max(1, closeArray.length - 1);
               }
-              
+
               const psarSignals = response.data.slice(0, dataLength).map((element) => element?.psar_signal || 0);
-              
+
               const combinedDataLong = datetimeArray.slice(0, dataLength).map((datetime, index) => ({
                 datetime: datetime,
                 signal: psarSignals[index] === 1 ? 1 : 0,
@@ -186,7 +201,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
               if (tickInterval !== '1min') {
                 dataLength = Math.max(1, closeArray.length - 1);
               }
-              
+
               const psar_values = calculatePSAR(
                 highArray.slice(0, dataLength),
                 lowArray.slice(0, dataLength),
@@ -197,7 +212,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
               );
               const longSignals = getPosSignals(closeArray.slice(0, dataLength), psar_values);
               const shortSignals = getNegSignals(closeArray.slice(0, dataLength), psar_values);
-              
+
               const combinedDataLong = datetimeArray.slice(0, dataLength).map((datetime, index) => ({
                 datetime: datetime,
                 signal: longSignals[index],
@@ -233,7 +248,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
               return [...newMarkers1, ...newMarkers2].sort((a, b) => a.time - b.time);
             }
           })() : Promise.resolve([]),
-          
+
           // Stochastic - use pre-calculated if available, otherwise calculate
           stochEnabled ? (async () => {
             if (hasPreCalculatedStoch) {
@@ -303,7 +318,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
               return { K: StochKData, D: StochDData };
             }
           })() : Promise.resolve({ K: [], D: [] }),
-          
+
           // LRC
           lrcenabled ? (async () => {
             const { LRL, UCL, LCL } = linearRegressionChannel(
@@ -350,7 +365,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
             return { LRL: new_LRLData || [], UCL: new_UCLData || [], LCL: new_LCLData || [] };
           })() : Promise.resolve({ LRL: [], UCL: [], LCL: [] }),
-          
+
           // Alerts
           ChartApis.getAlertsBySymbol({
             symbol: symbolValue,
@@ -395,12 +410,108 @@ function TradingChart({ instrumentToken, tickInterval }) {
     } catch (error) {
       log("Error fetching trading data:", error);
     }
-  }, [symbolValue, minOptionValue, enabled, acceleration, maxAcceleration, upColor, downColor, 
-      tickInterval, stochEnabled, stoch_period, k_avg, d_avg, lrcenabled, period, standardDeviation]);
+  }, [symbolValue, minOptionValue, enabled, acceleration, maxAcceleration, upColor, downColor,
+    tickInterval, stochEnabled, stoch_period, k_avg, d_avg, lrcenabled, period, standardDeviation]);
+
+  // Keep tradingDataRef in sync so the WS closure always sees the latest data
+  useEffect(() => {
+    tradingDataRef.current = tradingData;
+  }, [tradingData]);
 
   useEffect(() => {
     fetchData();
   }, [symbolValue, fetchData]);
+
+  // ─── Live WebSocket streaming ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!symbolValue) return;
+
+    const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:1000/api';
+    let wsUrl = apiEndpoint.replace(':1000', ':8080').replace('/api', '');
+
+    // If the endpoint is the hosted IP, route the websocket through Nginx on port 80 (location /ws)
+    // instead of port 8080 directly, to bypass firewall restrictions.
+    if (wsUrl.includes('103.160.145.141')) {
+      wsUrl = 'ws://103.160.145.141/ws';
+    } else {
+      if (wsUrl.startsWith('http://')) wsUrl = wsUrl.replace('http://', 'ws://');
+      if (wsUrl.startsWith('https://')) wsUrl = wsUrl.replace('https://', 'wss://');
+    }
+
+    // Close any previous WebSocket before opening a new one
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    let ws;
+    let reconnectTimer = null;
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => log('[TradingChart WS] Connected');
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type !== 'ohlc_live') return; // ignore alerts etc.
+
+          // Match on the option name stored as symbol (e.g. 'NIFTY25FEB24000CE')
+          // The Python script sets symbol = token_to_symbol lookup
+          if (msg.symbol !== symbolValue) return;
+
+          const data = tradingDataRef.current;
+          if (!data || data.length === 0 || !candleStickSeries) return;
+
+          // Compute Heikin-Ashi for the live (forming) candle
+          const lastHA = data[data.length - 1]; // last completed HA bar
+          const rawBar = {
+            open: msg.open,
+            high: msg.high,
+            low: msg.low,
+            close: msg.close,
+          };
+          const liveHA = computeLiveHA(lastHA, rawBar);
+
+          // Convert timestamp '2025-02-24 09:15:00' → Unix seconds
+          const timeSec = Math.floor(new Date(msg.timestamp.replace(' ', 'T') + '+05:30').getTime() / 1000);
+
+          // Update the forming candle (lightweight-charts updates in-place if
+          // time matches the last bar, otherwise appends a new bar)
+          candleStickSeries.update({
+            time: timeSec,
+            open: parseFloat(liveHA.open.toFixed(2)),
+            high: parseFloat(liveHA.high.toFixed(2)),
+            low: parseFloat(liveHA.low.toFixed(2)),
+            close: parseFloat(liveHA.close.toFixed(2)),
+          });
+        } catch (err) {
+          log('[TradingChart WS] message error:', err);
+        }
+      };
+
+      ws.onerror = (err) => log('[TradingChart WS] Error:', err);
+
+      ws.onclose = () => {
+        log('[TradingChart WS] Disconnected — reconnecting in 3 s');
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (wsRef.current) {
+        wsRef.current.onclose = null; // prevent reconnect loop on intentional close
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [symbolValue]); // re-connect when symbol changes
+  // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
 
@@ -707,7 +818,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
     if (symbolValue === undefined || minOptionValue === undefined) {
       return;
     }
-    
+
     try {
       const [response] = await Promise.all([
         ChartApis.getSymbolChartData({
@@ -724,7 +835,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
           low: element?.ha_low,
           close: element?.ha_close,
         }));
-        
+
         // Early return if no new data
         if (tradingData) {
           const lastTradingDataTimestamp = tradingData[tradingData.length - 1]?.timestamp;
@@ -748,9 +859,9 @@ function TradingChart({ instrumentToken, tickInterval }) {
         const lowArray = ohlcData.map((dataPoint) => dataPoint.low);
 
         // Check if indicator data is present in API response
-        const hasPreCalculatedPSAR = response.data && response.data.length > 0 && 
+        const hasPreCalculatedPSAR = response.data && response.data.length > 0 &&
           (response.data[0].psar_value !== undefined || response.data[0].psar_signal !== undefined);
-        const hasPreCalculatedStoch = response.data && response.data.length > 0 && 
+        const hasPreCalculatedStoch = response.data && response.data.length > 0 &&
           (response.data[0].stoch_k !== undefined || response.data[0].stoch_d !== undefined);
 
         if (lrcenabled) {
@@ -824,7 +935,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
             // Use pre-calculated PSAR data from API
             console.log('📊 Refresh: Using pre-calculated PSAR data from API');
             const psarSignals = response.data.map((element) => element?.psar_signal || 0);
-            
+
             const combinedDataLong = datetimeArray.map((datetime, index) => ({
               datetime: datetime,
               signal: psarSignals[index] === 1 ? 1 : 0,
@@ -874,7 +985,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
             );
             const longSignals = getPosSignals(closeArray, psar_values);
             const shortSignals = getNegSignals(closeArray, psar_values);
-            
+
             const combinedDataLong = datetimeArray.map((datetime, index) => ({
               datetime: datetime,
               signal: longSignals[index],
@@ -961,7 +1072,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
               d_avg,
               k_avg
             );
-            
+
             const combinedDataK = datetimeArray.map((datetime, index) => ({
               datetime: datetime,
               Stoch_K: K[index],
@@ -1042,11 +1153,12 @@ function TradingChart({ instrumentToken, tickInterval }) {
       log("Error refreshing trading data:", error);
     }
   }, [symbolValue, minOptionValue, enabled, acceleration, maxAcceleration, upColor, downColor,
-      tickInterval, stochEnabled, stoch_period, k_avg, d_avg, lrcenabled, period, standardDeviation, tradingData]);
+    tickInterval, stochEnabled, stoch_period, k_avg, d_avg, lrcenabled, period, standardDeviation, tradingData]);
 
   const setupInterval = () => {
-    // if (intervalInstance) clearInterval(intervalInstance);
-    // intervalInstance = setInterval(refreshData, 60000); // Refresh every 1 minute
+    if (intervalInstance) clearInterval(intervalInstance);
+    // Refresh full chart data every 60 s so completed candles are appended
+    intervalInstance = setInterval(refreshData, 60000);
   };
 
   useEffect(() => {
@@ -1073,12 +1185,12 @@ function TradingChart({ instrumentToken, tickInterval }) {
     if (!chartData || !candleStickSeries) return;
 
     _updatedTradingData = tradingData;
-    
+
     // Batch all chart updates in a single operation
     requestAnimationFrame(() => {
       candleStickSeries.setData(chartData);
       candleStickSeries.setMarkers(markers.length > 0 ? markers : []);
-      
+
       if (stochKSeries && markers.length > 0) {
         stochKSeries.setMarkers(markers);
       }
@@ -1114,8 +1226,8 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
       setIsChartPlotted(true);
     });
-  }, [chartData, markers, LRLData, UCLData, LCLData, stochastics_K, stochastics_D, 
-      upperColor, lowerColor, linColor, k_color, d_color, k_line_size, d_line_size, tradingData]);
+  }, [chartData, markers, LRLData, UCLData, LCLData, stochastics_K, stochastics_D,
+    upperColor, lowerColor, linColor, k_color, d_color, k_line_size, d_line_size, tradingData]);
 
   const zoomIn = useCallback((factor) => {
 

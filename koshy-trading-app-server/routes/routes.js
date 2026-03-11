@@ -62,6 +62,10 @@ router.post(`/api/alerts-by-symbol`, DataController.getAlertsBySymbol);
 
 router.post(`/api/scan-indicators`, DataController.getScanIndicatorsById);
 
+router.get(`/api/instruments/symbols`, DataController.getAvailableSymbols);
+router.get(`/api/instruments/options`, DataController.getInstrumentsOptions);
+router.post(`/api/filter-options`, DataController.addFilterOption);
+
 const apiRoutes = router;
 
 module.exports = apiRoutes;

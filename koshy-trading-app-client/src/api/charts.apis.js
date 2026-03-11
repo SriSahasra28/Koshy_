@@ -439,6 +439,11 @@ export class ChartApis {
     signaldirection,
     signalColor,
     hlfpid,
+    lrc_filter_enabled,
+    lrc_filter_type,
+    time_filter_enabled,
+    time_filter_start,
+    time_filter_end,
   }) => {
     try {
       const res = await axiosInstance({
@@ -455,6 +460,11 @@ export class ChartApis {
           signaldirection,
           signalColor,
           hlfpid,
+          lrc_filter_enabled,
+          lrc_filter_type,
+          time_filter_enabled,
+          time_filter_start,
+          time_filter_end,
         },
       });
 
@@ -486,6 +496,17 @@ export class ChartApis {
     signaldirection,
     signalColor,
     hlfpid,
+    lrc_filter_enabled,
+    lrc_filter_type,
+    time_filter_enabled,
+    time_filter_start,
+    time_filter_end,
+    condition1,
+    condition2,
+    candle1,
+    candle2,
+    kline_start,
+    kline_end,
   }) => {
     try {
       const res = await axiosInstance({
@@ -503,6 +524,17 @@ export class ChartApis {
           signaldirection,
           signalColor,
           hlfpid,
+          lrc_filter_enabled,
+          lrc_filter_type,
+          time_filter_enabled,
+          time_filter_start,
+          time_filter_end,
+          condition1,
+          condition2,
+          candle1,
+          candle2,
+          kline_start,
+          kline_end,
         },
       });
 

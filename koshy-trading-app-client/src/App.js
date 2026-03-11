@@ -16,6 +16,9 @@ import GroupsTreeSideBar from "./components/groupsTree/mobile/GroupsTreeSideBar"
 import Scan from "./components/Scan";
 import CustomIndicator from "./components/CustomIndicator";
 import Condition from "./components/Condition";
+import Filter from "./components/Filter";
+import Files from "./components/Files";
+import Backtest from "./components/Backtest";
 
 function App() {
   return (
@@ -31,7 +34,10 @@ function App() {
           <Route path="/groups/tree" Component={GroupsTree} />
           <Route path="/ci" Component={CustomIndicator} />
           <Route path="/scan" Component={Scan} />
+          <Route path="/filter" Component={Filter} />
           <Route path="/cn" Component={Condition} />
+          <Route path="/files" Component={Files} />
+          <Route path="/backtest" Component={Backtest} />
         </Routes>
       </Router>
     </div>

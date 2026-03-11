@@ -249,12 +249,37 @@ const WebHeader = () => {
           <button type="button" className="btn ">
             <i className="fas fa-sync-alt"></i>
           </button>
-          <Link to={"/ci"}>
+          <Link to={"/"}>
             <button type="button" className="btn ">
-              CI
+              Home
             </button>
           </Link>
-          {/* <Link to={"/cn"}>
+          <Link to={"/groups"}>
+            <button type="button" className="btn ">
+              Group
+            </button>
+          </Link>
+          <Link to={"/filter"}>
+            <button type="button" className="btn ">
+              Filter
+            </button>
+          </Link>
+          <Link to={"/scan"}>
+            <button type="button" className="btn ">
+              Scan
+            </button>
+          </Link>
+          <Link to={"/files"}>
+            <button type="button" className="btn ">
+              Files
+            </button>
+          </Link>
+          <Link to={"/backtest"}>
+            <button type="button" className="btn ">
+              Backtest
+            </button>
+          </Link>
+          <Link to={"/cn"}>
             <button
               type="button"
               className="btn "
@@ -262,15 +287,10 @@ const WebHeader = () => {
             >
               CN
             </button>
-          </Link> */}
-          {/* <Link to={"/groups"}>
+          </Link>
+          <Link to={"/ci"}>
             <button type="button" className="btn ">
-              Group
-            </button>
-          </Link> */}
-          <Link to={"/scan"}>
-            <button type="button" className="btn ">
-              Scan
+              CI
             </button>
           </Link>
           <button type="button" className="btn" onClick={logout}>

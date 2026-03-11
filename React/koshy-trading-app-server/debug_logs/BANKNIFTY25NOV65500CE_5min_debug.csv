@@ -1,0 +1,2 @@
+timestamp,symbol,timeframe,open,high,low,close,volume,ha_open,ha_high,ha_low,ha_close,psar_value,psar_signal,stochastic_k,stochastic_d,k_in_range,psar_signal_match,candle_color,candle_type,candle_conditions_met,alert_triggered,scan_id,scan_name,condition_id,kline_start,kline_end,signaldirection,processing_time,error_message
+2025-10-30 10:40:00,BANKNIFTY25NOV65500CE,5minute,9.75,10.25,9.75,10.15,0,9.9,10.25,9.75,9.98,9.64,0,5.35,4.7,False,False,green,2,False,False,25,G6 B - S1,6,10.0,100.0,1,2025-10-30 10:46:24,"K value 5.350134770889486 out of range [10, 100]"

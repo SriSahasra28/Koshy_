@@ -218,8 +218,22 @@ class GroupController {
   static getSymbolsForGroup = catchAsync(async (req, res) => {
     const { group_id } = req.params;
 
+    // Get symbols from filter_options table (where group symbols are actually stored)
     const [results] = await db.sequelize.query(
-      `select * from basket_stocks where basket_id = '${group_id?.trim()}';`
+      `SELECT 
+        fo.id,
+        fo.symbol,
+        fo.option_name as option_type,
+        fo.expiry,
+        fo.instrument_token,
+        fo.basket_id,
+        fo.group_name
+      FROM filter_options fo
+      WHERE fo.basket_id = ?
+      ORDER BY fo.symbol, fo.option_name`,
+      {
+        replacements: [group_id]
+      }
     );
 
     return sendResponse({
@@ -234,16 +248,42 @@ class GroupController {
   static deleteSymbol = catchAsync(async (req, res) => {
     const { group_id, symbol_id } = req.params;
 
+    console.log(`[deleteSymbol] ========== START ==========`);
+    console.log(`[deleteSymbol] Received: group_id=${group_id}, symbol_id=${symbol_id}`);
+    console.log(`[deleteSymbol] Types: group_id=${typeof group_id}, symbol_id=${typeof symbol_id}`);
+
+    // symbol_id from frontend is now the filter_options.id (database row ID) after fixing getSymbolsForGroup
+    // Delete by ID directly
     const [results] = await db.sequelize.query(`
-    DELETE FROM basket_stocks WHERE id= ${symbol_id};
-    `);
+      DELETE FROM filter_options 
+      WHERE id = ?
+    `, {
+      replacements: [symbol_id]
+    });
+
+    console.log(`[deleteSymbol] Deletion result: affectedRows=${results.affectedRows}`);
 
     if (results.affectedRows == 0) {
+      console.log(`[deleteSymbol] No rows deleted. Checking if symbol exists...`);
+      
+      // Check if the ID exists in filter_options
+      const [checkResults] = await db.sequelize.query(`
+        SELECT id, symbol, option_name, basket_id, group_name 
+        FROM filter_options 
+        WHERE id = ?
+      `, {
+        replacements: [symbol_id]
+      });
+
+      console.log(`[deleteSymbol] Symbol check:`, checkResults);
+
       throw new APIError({
         code: ResponseCodes.NOT_FOUND,
-        message: "Symbol for group not found",
+        message: `Symbol not found in filter_options with id=${symbol_id}`,
       });
     }
+
+    console.log(`[deleteSymbol] ========== END ==========`);
 
     return sendResponse({
       res,
@@ -254,10 +294,12 @@ class GroupController {
   });
 
   static getGroupsTreeData = catchAsync(async (req, res) => {
+    // Only show groups that exist in baskets table and are active
     const [results] = await db.sequelize
-      .query(`SELECT b.group_name, b.symbol as stockName, b.option_name as options 
-      FROM filter_options b 
-      ORDER BY b.group_name, b.symbol, b.option_name`);
+      .query(`SELECT fo.group_name, fo.symbol as stockName, fo.option_name as options 
+      FROM filter_options fo
+      INNER JOIN baskets b ON fo.group_name = b.group_name AND b.active = 1
+      ORDER BY fo.group_name, fo.symbol, fo.option_name`);
 
       // console.log("raw result =====")
       // console.log(results)
@@ -327,24 +369,42 @@ class GroupController {
 
   static disableSymbol = catchAsync(async (req, res) => {
     const { symbol_id } = req.params;
+    const symbol = symbol_id?.trim();
 
-    const [results] = await db.sequelize.query(`
-    update monitor_symbols set active = 0 where symbol = '${symbol_id?.trim()}';
-    `);
+    console.log(`[disableSymbol] ========== START ==========`);
+    console.log(`[disableSymbol] Received symbol_id: ${symbol}`);
 
-    console.log("results", results);
+    // Update monitor_symbols (if it exists there)
+    const [monitorResults] = await db.sequelize.query(`
+      UPDATE monitor_symbols 
+      SET active = 0 
+      WHERE symbol = ?
+    `, {
+      replacements: [symbol]
+    });
 
-    if (results.affectedRows == 0) {
-      throw new APIError({
-        code: ResponseCodes.NOT_FOUND,
-        message: "Symbol not found",
-      });
-    }
+    console.log(`[disableSymbol] monitor_symbols update: affectedRows=${monitorResults.affectedRows}`);
+
+    // ✅ CRITICAL: Also delete from filter_options (where group symbols are stored)
+    // symbol_id is the option_name (tradingsymbol) like 'ADANIENT26JANFUT'
+    const [filterResults] = await db.sequelize.query(`
+      DELETE FROM filter_options 
+      WHERE option_name = ? OR symbol = ?
+    `, {
+      replacements: [symbol, symbol]
+    });
+
+    console.log(`[disableSymbol] filter_options deletion: affectedRows=${filterResults.affectedRows}`);
+    console.log(`[disableSymbol] ========== END ==========`);
+
+    const totalAffected = monitorResults.affectedRows + filterResults.affectedRows;
 
     return sendResponse({
       res,
       success: true,
-      message: "Symbol disabled successfully",
+      message: totalAffected > 0 
+        ? "Symbol disabled and removed from groups successfully" 
+        : "Symbol not found in monitor_symbols or filter_options",
       response_code: ResponseCodes.OK,
     });
   });

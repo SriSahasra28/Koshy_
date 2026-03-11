@@ -14,6 +14,10 @@ async function fetchHistoricalData(token, interval, from_date, to_date) {
   console.log('interval:', interval);
   try {
     const data = await kc.getHistoricalData(token, interval, from_date, to_date, false, false);
+    if (!data || data.length === 0) {
+      console.log(`⚠️ [fetchKiteData] No data returned from Kite for token ${token}, interval ${interval}, from ${from_date} to ${to_date}`);
+      return []; // Return empty array
+    }
     const formattedData = data.map(entry => {
       return {
         datetime: formatDate(entry.date), // Format date using the custom formatDate function
@@ -26,8 +30,10 @@ async function fetchHistoricalData(token, interval, from_date, to_date) {
     });
     return formattedData;
   } catch (error) {
-    console.error("Error fetching historical data: ", error);
-    return null; // Indicate that an error occurred
+    console.error(`❌ [fetchKiteData] Error fetching historical data for token ${token}:`, error.message || error);
+    console.error(`   Full error:`, error);
+    // Return empty array on error so caller can handle gracefully
+    return [];
   }
 }
 
