@@ -486,18 +486,6 @@ const Condition = () => {
                 <div className="tab-control-container">
                   <h4 className="tab-heading text-start">Conditions Editor</h4>
                   <br />
-                  {/* Warning if indicators are missing */}
-                  {(lrc.length === 0 || psar.length === 0 || fastStoch.length === 0) && (
-                    <div className="alert alert-warning d-flex align-items-center justify-content-between mb-3">
-                      <span>
-                        <i className="fas fa-exclamation-triangle me-2"></i>
-                        Missing indicators detected. Please add indicators before creating a condition.
-                      </span>
-                      <Link to="/ci" className="btn btn-sm btn-primary">
-                        <i className="fas fa-plus"></i> Add Indicators
-                      </Link>
-                    </div>
-                  )}
                   <div className="tab-content" id="myTabContent">
                     {/* Block 1 - Condition 1 */}
                     <div className="condition-section mb-3 p-3" style={{ border: "1px solid #ddd", borderRadius: 4 }}>
@@ -589,9 +577,6 @@ const Condition = () => {
                               </option>
                             ))}
                         </select>
-                        <Link to="/ci" className="btn btn-sm btn-outline-primary mb-1" title="Add/Edit Indicators">
-                          <i className="fas fa-plus"></i> Add Indicator
-                        </Link>
                       </div>
                     </div>
 
@@ -684,9 +669,6 @@ const Condition = () => {
                                   </option>
                                 ))}
                             </select>
-                            <Link to="/ci" className="btn btn-sm btn-outline-primary" title="Add/Edit Indicators">
-                              <i className="fas fa-plus"></i> Add Indicator
-                            </Link>
                           </div>
                         </div>
 

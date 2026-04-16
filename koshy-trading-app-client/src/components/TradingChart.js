@@ -633,6 +633,26 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
     window.addEventListener("resize", handleResize);
 
+    const chart1Container = chartContainerRef.current;
+    const handleChart1Touch = (e) => {
+      if (!e.touches || e.touches.length === 0) return;
+      const rect = chart1Container.getBoundingClientRect();
+      const x = e.touches[0].clientX - rect.left;
+      const y = e.touches[0].clientY - rect.top;
+      const time = chart.timeScale().coordinateToTime(x);
+      const price = candleStickSeries.coordinateToPrice(y);
+      if (time && price != null) {
+        chart.setCrosshairPosition(price, time, candleStickSeries);
+      }
+    };
+    const handleChart1TouchEnd = () => {
+      chart.clearCrosshairPosition();
+    };
+    chart1Container.addEventListener("touchstart", handleChart1Touch, { passive: true });
+    chart1Container.addEventListener("touchmove", handleChart1Touch, { passive: true });
+    chart1Container.addEventListener("touchend", handleChart1TouchEnd);
+    chart1Container.addEventListener("touchcancel", handleChart1TouchEnd);
+
     setChart1(chart);
 
     return () => {
@@ -640,6 +660,10 @@ function TradingChart({ instrumentToken, tickInterval }) {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("mousedown", handleResize);
       window.removeEventListener("mouseup", handleResize);
+      chart1Container.removeEventListener("touchstart", handleChart1Touch);
+      chart1Container.removeEventListener("touchmove", handleChart1Touch);
+      chart1Container.removeEventListener("touchend", handleChart1TouchEnd);
+      chart1Container.removeEventListener("touchcancel", handleChart1TouchEnd);
     };
   }, []);
 
@@ -769,6 +793,26 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
     window.addEventListener("resize", handleResize2);
 
+    const chart2Container = chartContainerRef2.current;
+    const handleChart2Touch = (e) => {
+      if (!e.touches || e.touches.length === 0) return;
+      const rect = chart2Container.getBoundingClientRect();
+      const x = e.touches[0].clientX - rect.left;
+      const y = e.touches[0].clientY - rect.top;
+      const time = chart2.timeScale().coordinateToTime(x);
+      const price = stochKSeries ? stochKSeries.coordinateToPrice(y) : null;
+      if (time && price != null && stochKSeries) {
+        chart2.setCrosshairPosition(price, time, stochKSeries);
+      }
+    };
+    const handleChart2TouchEnd = () => {
+      chart2.clearCrosshairPosition();
+    };
+    chart2Container.addEventListener("touchstart", handleChart2Touch, { passive: true });
+    chart2Container.addEventListener("touchmove", handleChart2Touch, { passive: true });
+    chart2Container.addEventListener("touchend", handleChart2TouchEnd);
+    chart2Container.addEventListener("touchcancel", handleChart2TouchEnd);
+
     setChart2(chart2);
 
     return () => {
@@ -776,6 +820,10 @@ function TradingChart({ instrumentToken, tickInterval }) {
       window.removeEventListener("resize", handleResize2);
       window.removeEventListener("mousedown", handleResize2);
       window.removeEventListener("mouseup", handleResize2);
+      chart2Container.removeEventListener("touchstart", handleChart2Touch);
+      chart2Container.removeEventListener("touchmove", handleChart2Touch);
+      chart2Container.removeEventListener("touchend", handleChart2TouchEnd);
+      chart2Container.removeEventListener("touchcancel", handleChart2TouchEnd);
     };
   }, []);
   //Synchronization of Charts

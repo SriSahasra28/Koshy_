@@ -36,6 +36,8 @@ const MobileMenu = () => {
       navigate("/cn");
     } else if (item?.text === "Scan") {
       navigate("/scan");
+    } else if (item?.text === "Filter") {
+      navigate("/filter");
     }
   };
 
@@ -135,7 +137,7 @@ const MobileMenu = () => {
             >
               <p
                 className={`menu_item_text ${
-                  item?.id === "10" ? "menu_item_border" : ""
+                  item?.id === "11" ? "menu_item_border" : ""
                 }`}
                 onClick={() => onClickText(item)}
               >
@@ -283,6 +285,11 @@ const sideBarData = [
   {
     id: "10",
     text: "Group",
+    options: [],
+  },
+  {
+    id: "11",
+    text: "Filter",
     options: [],
   },
 ];
