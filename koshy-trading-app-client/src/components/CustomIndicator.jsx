@@ -9,6 +9,7 @@ const CustomIndicator = () => {
   const [indicators, setIndicators] = useState([]);
   const [id, setId] = useState(1);
   const [value, setValue] = useState("");
+  const [valueError, setValueError] = useState("");
   const [name, setName] = useState("");
   const [currentIndicator, setCurrentIndicator] = useState(null);
   const [addIndicator, setAddIndicator] = useState(true);
@@ -48,6 +49,7 @@ const CustomIndicator = () => {
 
   const insertCustomIndicators = async (e) => {
     e.preventDefault();
+    if (!validateLRCValue(value, id)) return;
     try {
       const res = await ChartApis.insertCustomIndicator({
         name,
@@ -102,6 +104,7 @@ const CustomIndicator = () => {
 
   const updateCustomIndicator = async (e) => {
     e.preventDefault();
+    if (!validateLRCValue(value, id)) return;
     getCustomIndicatorByID(currentIndicator.id);
     try {
       const res = await ChartApis.updateCustomIndicator({
@@ -139,8 +142,25 @@ const CustomIndicator = () => {
     setName(e.target.value);
   };
 
+  const validateLRCValue = (val, indicatorId) => {
+    // Only validate for Linear Regression (id === 1)
+    if (indicatorId !== 1) {
+      setValueError("");
+      return true;
+    }
+    const parts = val.split(",").map((p) => p.trim());
+    if (parts.length !== 2 || parts.some((p) => p === "" || isNaN(Number(p)))) {
+      setValueError('Linear Regression requires exactly 2 numbers. Example: 20,2 or 15,3');
+      return false;
+    }
+    setValueError("");
+    return true;
+  };
+
   const handleValueChange = (e) => {
-    setValue(e.target.value);
+    const newVal = e.target.value;
+    setValue(newVal);
+    validateLRCValue(newVal, id);
   };
 
   const handleIdChange = (e) => {
@@ -232,10 +252,16 @@ const CustomIndicator = () => {
                         type="text"
                         id="value"
                         required
-                        className="form-control"
+                        className={`form-control ${valueError ? 'is-invalid' : ''}`}
                         onChange={handleValueChange}
                         value={value}
+                        placeholder={id === 1 ? "e.g. 20,2" : ""}
                       />
+                      {valueError && (
+                        <div className="invalid-feedback d-block" style={{ color: '#dc3545', fontSize: '0.85rem', marginTop: '4px' }}>
+                          ⚠️ {valueError}
+                        </div>
+                      )}
                     </div>
                     <div className="form-group">
                       <button className="btn btn-primary" type="submit">
@@ -282,9 +308,15 @@ const CustomIndicator = () => {
                           type="text"
                           id="value"
                           required
-                          className="form-control"
+                          className={`form-control ${valueError ? 'is-invalid' : ''}`}
                           onChange={handleValueChange}
+                          placeholder={id === 1 ? "e.g. 20,2" : ""}
                         />
+                        {valueError && (
+                          <div className="invalid-feedback d-block" style={{ color: '#dc3545', fontSize: '0.85rem', marginTop: '4px' }}>
+                            ⚠️ {valueError}
+                          </div>
+                        )}
                       </div>
                       <div className="form-group">
                         <button className="btn btn-primary" type="submit">

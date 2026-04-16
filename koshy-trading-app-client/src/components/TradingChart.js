@@ -1121,13 +1121,14 @@ function TradingChart({ instrumentToken, tickInterval }) {
           const AlertData = responseAlert.data?.map((element) => ({
             timestamp: element?.datetime,
             scanID: element?.scan,
+            color: element?.color,
           }));
           //console.log('AlertData:', AlertData);
 
           const alertMarkers = AlertData?.map((element) => ({
             time: Math.floor(new Date(element?.timestamp).getTime() / 1000),
             position: "belowBar",
-            color: "#0000FF",
+            color: element?.color || "#0000FF",
             shape: "arrowUp",
             text: "Alert: " + element?.scanID,
             size: 2,

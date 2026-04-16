@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls *)",
+      "Bash(where redis-cli *)",
+      "Bash(wsl which *)",
+      "Bash(/c/Program Files/MySQL/MySQL Server 8.3/bin/mysql.exe *)",
+      "Bash(wsl redis-cli *)",
+      "Bash($MYSQL *)",
+      "Bash(sed 's/:[^:]*$//')",
+      "Bash(wsl bash *)",
+      "Bash(sed 's/:[0-9]*$//')"
+    ]
+  }
+}
