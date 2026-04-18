@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const groupRoutes = require("./group.routes");
 const DataController = require("../controllers/data.controller");
+const ImprovedDataController = require("../controllers/data.controller.improved");
 const scanController = require('../controllers/scanController');
 
 const router = Router();
@@ -19,6 +20,7 @@ router.post('/api/stop', scanController.stopScanProcesses);
 // router.get(`/api/heikin`, DataController.getDataV2);
 router.get(`/api/heikin`, DataController.getData_redis);
 router.get(`/api/heikinv2`, DataController.getData_redisv2);
+router.get(`/api/heikinv3`, ImprovedDataController.getDataV2);
 router.get(`/api/psar`, DataController.getPsarSettings);
 router.get(`/api/faststoch`, DataController.getFastStochSettings);
 router.get(`/api/lrc`, DataController.getLRCSettings);

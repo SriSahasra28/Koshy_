@@ -13,10 +13,10 @@ export class ChartApis {
     console.log("symbol:", symbol);
     console.log("interval:", interval);
     try {
-      // Use v2 endpoint which includes indicator data if available
+      // Use v3 endpoint with improved resampling logic
       const res = await axiosInstance({
         method: "get",
-        url: "/heikinv2",
+        url: "/heikinv3",
         params: {
           symbol,
           interval,
