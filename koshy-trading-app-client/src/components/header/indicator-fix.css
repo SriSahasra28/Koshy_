@@ -1,0 +1,49 @@
+/* Fix for indicator dropdown being hidden behind sidebar */
+
+/* Ensure the indicator dropdown appears above the sidebar */
+.indicators-button .dropdown-menu,
+.indicators-menu {
+  z-index: 10000 !important; /* Higher than sidebar z-index */
+  position: absolute;
+  background: white;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+/* Bootstrap dropdown override */
+.dropdown-menu.show {
+  z-index: 10000 !important;
+}
+
+/* Header dropdown container */
+.header .dropdown,
+.web-header .dropdown {
+  position: relative;
+  z-index: 9999;
+}
+
+/* Ensure left sidebar stays below dropdowns */
+.left-sidebar {
+  z-index: 900 !important; /* Lower than dropdowns */
+  position: relative;
+}
+
+/* Groups tree sidebar */
+.groups-tree-sidebar {
+  z-index: 900 !important; /* Lower than dropdowns */
+}
+
+/* Any dropdown in header area */
+.header .dropdown-menu,
+.web-header .dropdown-menu,
+.indicators-dropdown {
+  z-index: 10000 !important;
+  position: absolute;
+  background: white;
+  border: 1px solid #ddd;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Fix for React Bootstrap dropdowns */
+.dropdown-menu[data-bs-popper] {
+  z-index: 10000 !important;
+}

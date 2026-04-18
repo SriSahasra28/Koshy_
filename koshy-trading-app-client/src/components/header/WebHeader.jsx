@@ -8,6 +8,7 @@ import { Dropdown, InputGroup, Modal } from "react-bootstrap";
 import IndicatorModal from "./IndicatorModal";
 import LRCModal from "./LRCModal";
 import FastStochModal from "./FastStoch";
+import "./indicator-fix.css";
 
 const WebHeader = () => {
   const dispatch = useDispatch();
