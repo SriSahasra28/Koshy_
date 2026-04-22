@@ -870,7 +870,24 @@ class DataController {
       let psarDataMap = null;
       let stochDataMap = null;
 
-      if (candleData && candleData.length > 0) {
+      // Freshness gate: during market hours, stale candle_data for non-1min
+      // intervals (symbols not in an active scan get updated only by the
+      // end-of-day batch) forces the on-the-fly resample path below so
+      // today's candles are included.
+      let candleDataFresh = true;
+      if (candleData && candleData.length > 0 && intervalStr !== '1minute') {
+        const nowIST = moment().tz('Asia/Kolkata');
+        const mins = nowIST.hour() * 60 + nowIST.minute();
+        const inMarketHours = mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
+        const lastTs = moment.tz(candleData[candleData.length - 1].datetime, 'Asia/Kolkata');
+        const isFromToday = lastTs.isSame(nowIST, 'day');
+        if (inMarketHours && !isFromToday) {
+          console.log(`⏭️ [getData_redisv2] candle_data stale for ${symbol} ${intervalStr} (last=${lastTs.format()}) — falling through to on-the-fly resample`);
+          candleDataFresh = false;
+        }
+      }
+
+      if (candleData && candleData.length > 0 && candleDataFresh) {
         // candle_data exists - return OHLC + HA
         console.log(`✅ [getData_redisv2] Using candle_data for ${symbol} ${intervalStr} (${candleData.length} candles)`);
 

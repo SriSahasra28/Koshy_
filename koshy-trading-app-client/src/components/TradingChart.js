@@ -95,6 +95,10 @@ function TradingChart({ instrumentToken, tickInterval }) {
   const tradingDataRef = useRef(null);
   // ref to WS connection for cleanup
   const wsRef = useRef(null);
+  // ref to current minOptionValue so WS closure can gate on interval
+  const minOptionValueRef = useRef(1);
+  // ref to chart2 so non-state code paths can access it
+  const chart2Ref = useRef(null);
 
   const [LRLData, setLRLData] = useState([]);
   const [UCLData, setUCLData] = useState([]);
@@ -112,10 +116,12 @@ function TradingChart({ instrumentToken, tickInterval }) {
     }
 
     try {
+      // Add timestamp to force fresh data
       const [response] = await Promise.all([
         ChartApis.getSymbolChartData({
           symbol: symbolValue,
           interval: minOptionValue,
+          _t: Date.now(), // Cache buster
         }),
       ]);
 
@@ -419,6 +425,10 @@ function TradingChart({ instrumentToken, tickInterval }) {
   }, [tradingData]);
 
   useEffect(() => {
+    minOptionValueRef.current = minOptionValue;
+  }, [minOptionValue]);
+
+  useEffect(() => {
     fetchData();
   }, [symbolValue, fetchData]);
 
@@ -465,28 +475,62 @@ function TradingChart({ instrumentToken, tickInterval }) {
           const data = tradingDataRef.current;
           if (!data || data.length === 0 || !candleStickSeries) return;
 
-          // Compute Heikin-Ashi for the live (forming) candle
-          const lastHA = data[data.length - 1]; // last completed HA bar
-          const rawBar = {
-            open: msg.open,
-            high: msg.high,
-            low: msg.low,
-            close: msg.close,
-          };
-          const liveHA = computeLiveHA(lastHA, rawBar);
+          // For 1-minute intervals, update the chart directly with live data
+          if (minOptionValueRef.current === 1) {
+            // Compute Heikin-Ashi for the live (forming) candle
+            const lastHA = data[data.length - 1]; // last completed HA bar
+            const rawBar = {
+              open: msg.open,
+              high: msg.high,
+              low: msg.low,
+              close: msg.close,
+            };
+            const liveHA = computeLiveHA(lastHA, rawBar);
 
-          // Convert timestamp '2025-02-24 09:15:00' → Unix seconds
-          const timeSec = Math.floor(new Date(msg.timestamp.replace(' ', 'T') + '+05:30').getTime() / 1000);
+            // Convert timestamp '2026-04-20 12:47:00' → Unix seconds
+            // Use local timezone conversion for IST
+            const timeSec = Math.floor(new Date(msg.timestamp.replace(' ', 'T') + '+05:30').getTime() / 1000);
 
-          // Update the forming candle (lightweight-charts updates in-place if
-          // time matches the last bar, otherwise appends a new bar)
-          candleStickSeries.update({
-            time: timeSec,
-            open: parseFloat(liveHA.open.toFixed(2)),
-            high: parseFloat(liveHA.high.toFixed(2)),
-            low: parseFloat(liveHA.low.toFixed(2)),
-            close: parseFloat(liveHA.close.toFixed(2)),
-          });
+            // Update the forming candle (lightweight-charts updates in-place if
+            // time matches the last bar, otherwise appends a new bar)
+            candleStickSeries.update({
+              time: timeSec,
+              open: parseFloat(liveHA.open.toFixed(2)),
+              high: parseFloat(liveHA.high.toFixed(2)),
+              low: parseFloat(liveHA.low.toFixed(2)),
+              close: parseFloat(liveHA.close.toFixed(2)),
+            });
+          } else {
+            // For multi-minute intervals, update the last bar if it's within the current interval
+            const lastBar = data[data.length - 1];
+            const msgTime = new Date(msg.timestamp.replace(' ', 'T') + '+05:30').getTime();
+            const lastBarTime = lastBar.timestamp * 1000; // convert to ms
+            const intervalMs = minOptionValueRef.current * 60 * 1000;
+
+            // Check if the incoming tick belongs to the current (forming) bar interval
+            if (msgTime >= lastBarTime && msgTime < lastBarTime + intervalMs) {
+              // Aggregate the live data into the current bar
+              const rawBar = {
+                open: lastBar.open,  // Keep original open
+                high: Math.max(lastBar.high, msg.high),
+                low: Math.min(lastBar.low, msg.low),
+                close: msg.close,  // Update to latest close
+              };
+
+              // Recompute Heikin-Ashi for the updated bar
+              const prevHA = data.length > 1 ? data[data.length - 2] : null;
+              const liveHA = computeLiveHA(prevHA, rawBar);
+
+              // Update the chart with aggregated data
+              candleStickSeries.update({
+                time: lastBar.timestamp,
+                open: parseFloat(liveHA.open.toFixed(2)),
+                high: parseFloat(liveHA.high.toFixed(2)),
+                low: parseFloat(liveHA.low.toFixed(2)),
+                close: parseFloat(liveHA.close.toFixed(2)),
+              });
+            }
+          }
         } catch (err) {
           log('[TradingChart WS] message error:', err);
         }
@@ -554,8 +598,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
       borderColor: "#E0E3EB",
       timeVisible: true,
       secondsVisible: true,
-      fixRightEdge: true,
-      fixLeftEdge: true,
+      rightOffset: 10,
       tickMarkFormatter: (time, tickMarkType, locale) => {
         const date = new Date(time * 1000);
         switch (tickMarkType) {
@@ -714,8 +757,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
       borderColor: "#E0E3EB",
       timeVisible: true,
       secondsVisible: true,
-      fixRightEdge: true,
-      fixLeftEdge: true,
+      rightOffset: 10,
       tickMarkFormatter: (time, tickMarkType, locale) => {
         const date = new Date(time * 1000);
         switch (tickMarkType) {
@@ -814,6 +856,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
     chart2Container.addEventListener("touchcancel", handleChart2TouchEnd);
 
     setChart2(chart2);
+    chart2Ref.current = chart2;
 
     return () => {
       chart2.remove();
@@ -826,12 +869,15 @@ function TradingChart({ instrumentToken, tickInterval }) {
       chart2Container.removeEventListener("touchcancel", handleChart2TouchEnd);
     };
   }, []);
+  // Flag to suspend chart sync during fit operations (avoids ping-pong)
+  const syncSuspendedRef = useRef(false);
   //Synchronization of Charts
   useEffect(() => {
 
     if (chart1 && chart2) {
       chart1.timeScale().subscribeVisibleLogicalRangeChange((timeRange) => {
         //console.log('timeRange:', timeRange)
+        if (syncSuspendedRef.current) return;
         if (timeRange !== null) {
           chart2.timeScale().setVisibleLogicalRange(timeRange);
         }
@@ -839,6 +885,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
       chart2.timeScale().subscribeVisibleLogicalRangeChange((timeRange) => {
         //console.log('timeRange:', timeRange)
+        if (syncSuspendedRef.current) return;
         if (timeRange !== null) {
           chart1.timeScale().setVisibleLogicalRange(timeRange);
         }
@@ -1206,8 +1253,10 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
   const setupInterval = () => {
     if (intervalInstance) clearInterval(intervalInstance);
-    // Refresh full chart data every 60 s so completed candles are appended
-    intervalInstance = setInterval(refreshData, 60000);
+    // Refresh more frequently for real-time updates
+    // For 1-minute charts, refresh every 30 seconds; others every 60 seconds
+    const refreshInterval = minOptionValue === 1 ? 30000 : 60000;
+    intervalInstance = setInterval(refreshData, refreshInterval);
   };
 
   useEffect(() => {
@@ -1273,10 +1322,48 @@ function TradingChart({ instrumentToken, tickInterval }) {
         stochDSeries.applyOptions({ visible: false });
       }
 
+      // DIAGNOSTIC: log what actually reached the chart vs what came from API
+      console.log('[TradingChart] setData done', {
+        interval: minOptionValueRef.current,
+        chartData_len: chartData.length,
+        first_time: chartData[0]?.time ? new Date(chartData[0].time * 1000).toISOString() : null,
+        last_time: chartData[chartData.length-1]?.time ? new Date(chartData[chartData.length-1].time * 1000).toISOString() : null,
+        pendingFit: pendingFitRef.current,
+      });
+
+      // Fit inline (same rAF) when the interval just changed — no second rAF.
+      if (pendingFitRef.current && chartData.length > 0) {
+        pendingFitRef.current = false;
+        syncSuspendedRef.current = true;
+        try {
+          if (chart) chart.timeScale().fitContent();
+        } catch (e) {}
+        try {
+          // chart2 access through React state — capture via ref
+          if (chart2Ref.current) chart2Ref.current.timeScale().fitContent();
+        } catch (e) {}
+        const vr = chart?.timeScale().getVisibleRange();
+        const lr = chart?.timeScale().getVisibleLogicalRange();
+        console.log('[TradingChart] fit applied',
+          'time_from=', vr ? new Date(vr.from * 1000).toISOString() : null,
+          'time_to=', vr ? new Date(vr.to * 1000).toISOString() : null,
+          'logical=', lr ? `[${lr.from}, ${lr.to}]` : null);
+        requestAnimationFrame(() => { syncSuspendedRef.current = false; });
+      }
+
       setIsChartPlotted(true);
     });
   }, [chartData, markers, LRLData, UCLData, LCLData, stochastics_K, stochastics_D,
     upperColor, lowerColor, linColor, k_color, d_color, k_line_size, d_line_size, tradingData]);
+
+  const prevMinOptionRef = useRef(null);
+  const pendingFitRef = useRef(false);
+  useEffect(() => {
+    if (prevMinOptionRef.current !== minOptionValue) {
+      prevMinOptionRef.current = minOptionValue;
+      pendingFitRef.current = true;
+    }
+  }, [minOptionValue]);
 
   const zoomIn = useCallback((factor) => {
 

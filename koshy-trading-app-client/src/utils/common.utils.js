@@ -250,52 +250,95 @@ export const getEmaLineData = ({ length, data }) => {
 };
 
 export const calculatePSAR = (high, low, close, af0, af, max_af) => {
-  const length = close.length;
-  const psar = new Array(length).fill(0);
-  psar[0] = close[0];
-  let trend = 1;  // 1: uptrend, -1: downtrend
-  let ep = high[0];  // extreme point
-  
-  // Match Python: if af is None/undefined, use af0
-  if (af === undefined || af === null) {
-    af = af0;
+  // TA-Lib compatible Parabolic SAR implementation
+  // Matches talib.SAR(high, low, acceleration, maximum) output exactly
+  const n = high.length;
+  if (n < 2) return new Array(n).fill(0);
+
+  const output = new Array(n).fill(0);
+  // output[0] = 0 (TA-Lib returns NaN for first bar, Python replaces with 0)
+
+  // Determine initial trend direction from first two bars
+  let isLong = high[1] > high[0];
+  let currentAf = af0;
+  let sar, ep;
+
+  if (isLong) {
+    sar = low[0];
+    ep = high[0];
+  } else {
+    sar = high[0];
+    ep = low[0];
   }
 
-  for (let i = 1; i < length; i++) {
-    psar[i] = psar[i - 1] + af * (ep - psar[i - 1]);
+  // Bar 1: update EP only (no AF increment on initialization bar)
+  if (isLong) {
+    if (high[1] > ep) ep = high[1];
+    if (low[1] < sar) {
+      isLong = false;
+      sar = ep;
+      ep = low[1];
+      currentAf = af0;
+    }
+  } else {
+    if (low[1] < ep) ep = low[1];
+    if (high[1] > sar) {
+      isLong = true;
+      sar = ep;
+      ep = high[1];
+      currentAf = af0;
+    }
+  }
+  output[1] = sar;
 
-    if (trend === 1) {
-      if (high[i] > ep) {
-        ep = high[i];
-        af = Math.min(af + af0, max_af);
-      }
-      if (low[i] < psar[i]) {
-        trend = -1;
-        psar[i] = ep;
+  // Main loop — TA-Lib uses <= and >= for reversal detection
+  for (let i = 2; i < n; i++) {
+    sar = sar + currentAf * (ep - sar);
+
+    if (isLong) {
+      // Clamp: SAR must not exceed prior bars' lows
+      sar = Math.min(sar, low[i - 1]);
+      if (i >= 3) sar = Math.min(sar, low[i - 2]);
+
+      if (low[i] <= sar) {
+        // Reversal to downtrend
+        isLong = false;
+        sar = ep;
+        sar = Math.max(sar, high[i - 1]);
+        if (i >= 3) sar = Math.max(sar, high[i - 2]);
+        currentAf = af0;
         ep = low[i];
-        af = af0;
+      } else {
+        if (high[i] > ep) {
+          ep = high[i];
+          currentAf = Math.min(currentAf + af0, max_af);
+        }
       }
     } else {
-      if (low[i] < ep) {
-        ep = low[i];
-        af = Math.min(af + af0, max_af);
-      }
-      if (high[i] > psar[i]) {
-        trend = 1;
-        psar[i] = ep;
+      // Clamp: SAR must not fall below prior bars' highs
+      sar = Math.max(sar, high[i - 1]);
+      if (i >= 3) sar = Math.max(sar, high[i - 2]);
+
+      if (high[i] >= sar) {
+        // Reversal to uptrend
+        isLong = true;
+        sar = ep;
+        sar = Math.min(sar, low[i - 1]);
+        if (i >= 3) sar = Math.min(sar, low[i - 2]);
+        currentAf = af0;
         ep = high[i];
-        af = af0;
+      } else {
+        if (low[i] < ep) {
+          ep = low[i];
+          currentAf = Math.min(currentAf + af0, max_af);
+        }
       }
     }
 
-    if (trend === 1 && i > 1) {
-      psar[i] = Math.min(psar[i], low[i - 1], low[i - 2]);
-    } else if (trend === -1 && i > 1) {
-      psar[i] = Math.max(psar[i], high[i - 1], high[i - 2]);
-    }
+    output[i] = sar;
   }
 
-  return psar;
+  return output;
 };
 
 export const getPSARSignals = (close, psarValues) => {
