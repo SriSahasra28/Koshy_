@@ -2453,6 +2453,15 @@ WHERE id = ?;
       });
     }
 
+    // Notify Python consumer to reload scan config
+    try {
+      const { publish } = require('../db/redis');
+      await publish('scan_config_changed', JSON.stringify({ type: 'scan_delete', id, timestamp: Date.now() }));
+      console.log(`📡 [deleteScan] Published scan_config_changed event`);
+    } catch (pubErr) {
+      console.error(`[deleteScan] Failed to publish scan_config_changed: ${pubErr.message}`);
+    }
+
     return sendResponse({
       res,
       success: true,
@@ -2535,6 +2544,15 @@ WHERE id = ?;
         message: "Scan not found or no changes made",
         response_code: ResponseCodes.NOT_FOUND,
       });
+    }
+
+    // Notify Python consumer to reload scan config
+    try {
+      const { publish } = require('../db/redis');
+      await publish('scan_config_changed', JSON.stringify({ type: 'scan_update', id, timestamp: Date.now() }));
+      console.log(`📡 [updateScans] Published scan_config_changed event`);
+    } catch (pubErr) {
+      console.error(`[updateScans] Failed to publish scan_config_changed: ${pubErr.message}`);
     }
 
     return sendResponse({
@@ -2683,6 +2701,15 @@ WHERE id = ?;
       });
     }
 
+    // Notify Python consumer to reload scan config
+    try {
+      const { publish } = require('../db/redis');
+      await publish('scan_config_changed', JSON.stringify({ type: 'scan_item_delete', id, timestamp: Date.now() }));
+      console.log(`📡 [deleteScanItem] Published scan_config_changed event`);
+    } catch (pubErr) {
+      console.error(`[deleteScanItem] Failed to publish scan_config_changed: ${pubErr.message}`);
+    }
+
     return sendResponse({
       res,
       success: true,
@@ -2747,6 +2774,19 @@ WHERE id = ?;
       }
     );
 
+    // Notify Python consumer to reload scan config via Redis pub/sub
+    try {
+      const { publish } = require('../db/redis');
+      await publish('scan_config_changed', JSON.stringify({
+        type: 'scan_item_update',
+        id,
+        timestamp: Date.now(),
+      }));
+      console.log(`📡 [updateScanItem] Published scan_config_changed event for scan item ${id}`);
+    } catch (pubErr) {
+      console.error(`[updateScanItem] Failed to publish scan_config_changed: ${pubErr.message}`);
+    }
+
     // Return success response
     return sendResponse({
       res,
@@ -2809,6 +2849,15 @@ WHERE id = ?;
         ],
       }
     );
+
+    // Notify Python consumer to reload scan config
+    try {
+      const { publish } = require('../db/redis');
+      await publish('scan_config_changed', JSON.stringify({ type: 'scan_item_insert', scanID, timestamp: Date.now() }));
+      console.log(`📡 [insertScanItem] Published scan_config_changed event`);
+    } catch (pubErr) {
+      console.error(`[insertScanItem] Failed to publish scan_config_changed: ${pubErr.message}`);
+    }
 
     // Return success response
     return sendResponse({
