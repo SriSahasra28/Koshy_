@@ -221,6 +221,14 @@ const Condition = () => {
           // Ensure boolean fields are properly set
           lrc_filter_enabled: res.data.lrc_filter_enabled === true || res.data.lrc_filter_enabled === 1 || res.data.lrc_filter_enabled === '1',
           time_filter_enabled: res.data.time_filter_enabled === true || res.data.time_filter_enabled === 1 || res.data.time_filter_enabled === '1',
+          // Coerce signaldirection to string for radio button matching
+          signaldirection: String(res.data.signaldirection ?? prevForm.signaldirection ?? "1"),
+          // Coerce select values to strings for dropdown matching
+          lrcid: String(res.data.lrcid ?? prevForm.lrcid ?? "1"),
+          psarid: String(res.data.psarid ?? prevForm.psarid ?? "2"),
+          stochid: String(res.data.stochid ?? prevForm.stochid ?? "3"),
+          candle1: String(res.data.candle1 ?? prevForm.candle1 ?? "1"),
+          candle2: String(res.data.candle2 ?? prevForm.candle2 ?? "1"),
           condition1_enabled: res.data.condition1_enabled === true || res.data.condition1_enabled === 1 || res.data.condition1_enabled === '1',
           condition2_enabled: res.data.condition2_enabled === true || res.data.condition2_enabled === 1 || res.data.condition2_enabled === '1',
           condition3_enabled: res.data.condition3_enabled === true || res.data.condition3_enabled === 1 || res.data.condition3_enabled === '1',
@@ -292,7 +300,6 @@ const Condition = () => {
           })(),
           condition2: (() => {
             const val = formToUse.condition2_enabled;
-            // Explicitly handle all cases: true/1/'1' -> '1', everything else -> '0'
             let result = '0';
             if (val === true || val === 1 || val === '1') {
               result = '1';
@@ -300,6 +307,12 @@ const Condition = () => {
               result = '0';
             }
             console.log("[handleSave] condition2_enabled value:", val, "type:", typeof val, "converted to:", result);
+            return result;
+          })(),
+          condition3: (() => {
+            const val = formToUse.condition3_enabled;
+            const result = val === true || val === 1 || val === '1' ? 1 : 0;
+            console.log("[handleSave] condition3_enabled value:", val, "type:", typeof val, "converted to:", result);
             return result;
           })(),
           lrc_filter_enabled: (() => {
@@ -495,20 +508,10 @@ const Condition = () => {
                             type="checkbox"
                             id="condition1"
                             name="condition1_enabled"
-                            checked={form.condition1_enabled === true}
+                            checked={!!form.condition1_enabled}
                             style={{ marginRight: '8px', cursor: 'pointer' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              console.log("[Condition1 Checkbox] onClick fired, current checked:", e.target.checked, "form.condition1_enabled:", form.condition1_enabled);
-                              // Manually toggle the state
-                              const newValue = !form.condition1_enabled;
-                              console.log("[Condition1 Checkbox] Manually setting to:", newValue);
-                              setForm(prev => ({ ...prev, condition1_enabled: newValue }));
-                            }}
                             onChange={(e) => {
-                              e.stopPropagation();
-                              console.log("[Condition1 Checkbox] onChange fired, checked:", e.target.checked, "Current form value:", form.condition1_enabled);
-                              handleCheckboxChange(e);
+                              setForm(prev => ({ ...prev, condition1_enabled: e.target.checked }));
                             }}
                           />
                           Enable this condition
@@ -587,10 +590,9 @@ const Condition = () => {
                           type="checkbox"
                           id="condition2"
                           name="condition2_enabled"
-                          checked={form.condition2_enabled === true || form.condition2_enabled === 1 || form.condition2_enabled === '1'}
+                          checked={!!form.condition2_enabled}
                           onChange={(e) => {
-                            console.log("[Condition2 Checkbox] onChange fired, checked:", e.target.checked, "Current form value:", form.condition2_enabled);
-                            handleCheckboxChange(e);
+                            setForm(prev => ({ ...prev, condition2_enabled: e.target.checked }));
                           }}
                         />
                         <label htmlFor="condition2" className="ms-2">
@@ -630,20 +632,8 @@ const Condition = () => {
                       </div>
                     </div>
 
-                    {/* Block 3 - Filters (LRC + Time filter combined with new fields) */}
+                    {/* Block 3 - Filters (LRC + Time filter) */}
                     <div className="condition-section mb-3 p-3" style={{ border: "1px solid #ddd", borderRadius: 4 }}>
-                      <div className="checkbox-section mb-2">
-                        <input
-                          type="checkbox"
-                          id="condition3"
-                          name="condition3_enabled"
-                          checked={form.condition3_enabled}
-                          onChange={handleCheckboxChange}
-                        />
-                        <label htmlFor="condition3" className="ms-2">
-                          Enable this condition
-                        </label>
-                      </div>
 
                       {/* LRC configuration + filter */}
                       <div className="mb-3">
@@ -678,9 +668,8 @@ const Condition = () => {
                           <input
                             type="checkbox"
                             name="lrc_filter_enabled"
-                            checked={form.lrc_filter_enabled || false}
+                            checked={!!form.lrc_filter_enabled}
                             onChange={(e) => {
-                              console.log("[LRC Filter Checkbox] Changed to:", e.target.checked);
                               setForm((prev) => ({ ...prev, lrc_filter_enabled: e.target.checked }));
                             }}
                           />{" "}
@@ -723,9 +712,8 @@ const Condition = () => {
                           <input
                             type="checkbox"
                             name="time_filter_enabled"
-                            checked={form.time_filter_enabled || false}
+                            checked={!!form.time_filter_enabled}
                             onChange={(e) => {
-                              console.log("[Time Filter Checkbox] Changed to:", e.target.checked);
                               setForm((prev) => ({ ...prev, time_filter_enabled: e.target.checked }));
                             }}
                           />{" "}

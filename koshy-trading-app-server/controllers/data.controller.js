@@ -1955,6 +1955,7 @@ class DataController {
     const {
       condition1,
       condition2,
+      condition3,
       candle1,
       candle2,
       kline_start,
@@ -2009,6 +2010,13 @@ class DataController {
       condition2Val = (strVal === '1' || strVal === 'true' || Number(strVal) === 1 || condition2 === true || condition2 === 1) ? '1' : '0';
     }
 
+    // condition3 is tinyint(1) in MySQL, so we need 0 or 1
+    let condition3Val = 0;
+    if (condition3 !== undefined && condition3 !== null) {
+      const numVal = Number(condition3);
+      condition3Val = (numVal === 1 || condition3 === true || condition3 === '1') ? 1 : 0;
+    }
+
     console.log("[updateCondition] Condition value conversion:", {
       condition1_input: condition1,
       condition1_output: condition1Val,
@@ -2016,6 +2024,8 @@ class DataController {
       condition2_input: condition2,
       condition2_output: condition2Val,
       condition2_output_type: typeof condition2Val,
+      condition3_input: condition3,
+      condition3_output: condition3Val,
     });
 
     console.log("[updateCondition] Prepared values:", {
@@ -2066,13 +2076,14 @@ class DataController {
       timeFilterEnabled,       // 12. time_filter_enabled
       time_filter_start || null, // 13. time_filter_start
       time_filter_end || null,  // 14. time_filter_end
-      condition1Val,           // 15. condition1 ⚠️ CRITICAL
-      condition2Val,           // 16. condition2 ⚠️ CRITICAL
-      candle1Val,              // 17. candle1
-      candle2Val,              // 18. candle2
-      klineStartVal,           // 19. kline_start
-      klineEndVal,             // 20. kline_end
-      id,                      // 21. WHERE id
+      condition1Val,           // 15. condition1
+      condition2Val,           // 16. condition2
+      condition3Val,           // 17. condition3
+      candle1Val,              // 18. candle1
+      candle2Val,              // 19. candle2
+      klineStartVal,           // 20. kline_start
+      klineEndVal,             // 21. kline_end
+      id,                      // 22. WHERE id
     ];
 
     console.log("[updateCondition] Replacements array (positions 15-16 are condition1/2):", {
@@ -2086,7 +2097,7 @@ class DataController {
     const [results] = await db.sequelize.query(
       `
       UPDATE conditions
-      SET name = ?, lrcid = ?, psar1 = ?, stochid = ?, lrcangletype = ?, lrcanglestart = ?, lrcangleend = ?, signaldirection = ?, signalColor = ?, lrc_filter_enabled = ?, lrc_filter_type = ?, time_filter_enabled = ?, time_filter_start = ?, time_filter_end = ?, condition1 = ?, condition2 = ?, candle1 = ?, candle2 = ?, kline_start = ?, kline_end = ?
+      SET name = ?, lrcid = ?, psar1 = ?, stochid = ?, lrcangletype = ?, lrcanglestart = ?, lrcangleend = ?, signaldirection = ?, signalColor = ?, lrc_filter_enabled = ?, lrc_filter_type = ?, time_filter_enabled = ?, time_filter_start = ?, time_filter_end = ?, condition1 = ?, condition2 = ?, condition3 = ?, candle1 = ?, candle2 = ?, kline_start = ?, kline_end = ?
       WHERE id = ?;
     `,
       {
@@ -2129,6 +2140,7 @@ class DataController {
           time_filter_end,
           IFNULL(condition1, 0) as condition1,
           IFNULL(condition2, 0) as condition2,
+          IFNULL(condition3, 0) as condition3,
           candle1,
           candle2,
           kline_start,
@@ -2240,6 +2252,7 @@ class DataController {
           time_filter_end,
           IFNULL(condition1, 0) as condition1,
           IFNULL(condition2, 0) as condition2,
+          IFNULL(condition3, 0) as condition3,
           candle1,
           candle2,
           kline_start,
@@ -2275,6 +2288,7 @@ class DataController {
             NULL as time_filter_end,
             IFNULL(condition1, 0) as condition1,
             IFNULL(condition2, 0) as condition2,
+            0 as condition3,
             IFNULL(candle1, 1) as candle1,
             IFNULL(candle2, 1) as candle2,
             IFNULL(kline_start, 10) as kline_start,
@@ -2309,6 +2323,7 @@ class DataController {
               NULL as time_filter_end,
               0 as condition1,
               0 as condition2,
+              0 as condition3,
               1 as candle1,
               1 as candle2,
               10 as kline_start,
@@ -2358,6 +2373,7 @@ class DataController {
       time_filter_end: results[0].time_filter_end || null,
       condition1_enabled: results[0].condition1 === 1 || results[0].condition1 === '1' || results[0].condition1 === true,
       condition2_enabled: results[0].condition2 === 1 || results[0].condition2 === '1' || String(results[0].condition2) === '1',
+      condition3_enabled: results[0].condition3 === 1 || results[0].condition3 === '1' || results[0].condition3 === true,
       candle1: results[0].candle1 ? String(results[0].candle1) : '1',
       candle2: results[0].candle2 ? String(results[0].candle2) : '1',
       kline_start: results[0].kline_start !== null && results[0].kline_start !== undefined ? Number(results[0].kline_start) : 10,

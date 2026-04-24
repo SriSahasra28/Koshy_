@@ -14,18 +14,7 @@ class ImprovedDataController {
   static resampleOHLCData(data, intervalMinutes) {
     console.log(`🔍 Improved Resampling ${data.length} candles to ${intervalMinutes}-minute intervals`);
 
-    // Strategy 1: Try simple time-based grouping first (most reliable)
-    try {
-      const simpleResampled = this.simpleTimeBasedResampling(data, intervalMinutes);
-      if (simpleResampled && simpleResampled.length >= Math.floor(data.length / intervalMinutes * 0.5)) {
-        console.log(`✅ Simple resampling successful: ${simpleResampled.length} candles`);
-        return simpleResampled;
-      }
-    } catch (error) {
-      console.log(`⚠️ Simple resampling failed: ${error.message}`);
-    }
-
-    // Strategy 2: Try market-aligned resampling (current method)
+    // Strategy 1: Market-aligned resampling (matches Python alert engine's 09:15 IST alignment)
     try {
       const marketResampled = this.marketAlignedResampling(data, intervalMinutes);
       if (marketResampled && marketResampled.length >= Math.floor(data.length / intervalMinutes * 0.3)) {
@@ -34,6 +23,17 @@ class ImprovedDataController {
       }
     } catch (error) {
       console.log(`⚠️ Market-aligned resampling failed: ${error.message}`);
+    }
+
+    // Strategy 2: Fallback to simple time-based grouping (UTC-aligned, less accurate for Indian market)
+    try {
+      const simpleResampled = this.simpleTimeBasedResampling(data, intervalMinutes);
+      if (simpleResampled && simpleResampled.length >= Math.floor(data.length / intervalMinutes * 0.5)) {
+        console.log(`✅ Simple resampling successful: ${simpleResampled.length} candles`);
+        return simpleResampled;
+      }
+    } catch (error) {
+      console.log(`⚠️ Simple resampling failed: ${error.message}`);
     }
 
     // Strategy 3: Fallback to pandas-style resampling
