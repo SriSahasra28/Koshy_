@@ -65,6 +65,7 @@ const DashboardDataTable = () => {
 
           console.log("DashboardDataTable: lrc_period:", lrc_period);
           console.log("lrc_standardDeviation:", lrc_standardDeviation);
+          // Auto-enable indicators that have config from the scan
           dispatch(
             headerActions.setLRCValue({
               period: lrc_period,
@@ -72,7 +73,7 @@ const DashboardDataTable = () => {
               upperColor: lrcData.upperColor,
               lowerColor: lrcData.lowerColor,
               linColor: lrcData.linColor,
-              lrcenabled: lrcData.lrcenabled,
+              lrcenabled: lrcValue ? true : lrcData.lrcenabled,
             })
           );
 
@@ -85,10 +86,10 @@ const DashboardDataTable = () => {
               d_color: stochData.d_color,
               k_line_size: stochData.k_line_size,
               d_line_size: stochData.d_line_size,
-              stochEnabled: stochData.stochEnabled,
+              stochEnabled: stochValue ? true : stochData.stochEnabled,
             })
           );
-          // Update PSAR as per alert
+          // Update PSAR as per alert — auto-enable if scan has PSAR config
           console.log("psar_acceleration:", psar_acceleration);
           console.log("psar_max_acceleration:", psar_max_acceleration);
 
@@ -98,7 +99,7 @@ const DashboardDataTable = () => {
               maxAcceleration: psar_max_acceleration,
               upColor: psarData.upColor,
               downColor: psarData.downColor,
-              enabled: psarData.enabled,
+              enabled: psarValue ? true : psarData.enabled,
             })
           );
         } else {

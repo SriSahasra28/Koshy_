@@ -24,6 +24,7 @@ router.get(`/api/heikinv3`, ImprovedDataController.getDataV2);
 router.get(`/api/psar`, DataController.getPsarSettings);
 router.get(`/api/faststoch`, DataController.getFastStochSettings);
 router.get(`/api/lrc`, DataController.getLRCSettings);
+router.get(`/api/compute-indicator`, DataController.computeIndicator);
 router.use(`/api/groups`, groupRoutes);
 router.put('/api/update-psar-settings', DataController.updatePsarSettings);
 router.put('/api/update-lrc-settings', DataController.updateLRCSettings);

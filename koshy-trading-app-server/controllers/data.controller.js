@@ -8,7 +8,8 @@ const { APIError } = require("../middlewares/errorHandler.middleware");
 const { calcHeikinAshi } = require("../utils/utils.common");
 const { Op } = require("sequelize");
 const fetchHistoricalData = require("./fetchKiteData");
-const { getOhlcBySymbol, getResampledOhlcBySymbol, getCandleDataBySymbol, getIndicatorDataBySymbol } = require("./fetchRedisData");
+const { getOhlcBySymbol, getResampledOhlcBySymbol, getCandleDataBySymbol, getIndicatorDataBySymbol, getRedisClient } = require("./fetchRedisData");
+const indicators = require("../utils/indicators");
 
 
 const fs = require("fs");
@@ -878,7 +879,9 @@ class DataController {
       if (candleData && candleData.length > 0 && intervalStr !== '1minute') {
         const nowIST = moment().tz('Asia/Kolkata');
         const mins = nowIST.hour() * 60 + nowIST.minute();
-        const inMarketHours = mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
+        const dayOfWeek = nowIST.day(); // 0=Sun, 6=Sat
+        const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+        const inMarketHours = isWeekday && mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
         const lastTs = moment.tz(candleData[candleData.length - 1].datetime, 'Asia/Kolkata');
         const isFromToday = lastTs.isSame(nowIST, 'day');
         if (inMarketHours && !isFromToday) {
@@ -948,8 +951,22 @@ class DataController {
             if (psarDataMap) break;
           }
 
+          // Fallback: if psar_settings key didn't match, scan for any psar key for this symbol/interval
           if (!psarDataMap) {
-            console.log(`⚠️ [getData_redisv2] PSAR data not found`);
+            console.log(`⚠️ [getData_redisv2] PSAR data not found with settings key, scanning for any psar key...`);
+            const redisClient = getRedisClient();
+            const psarPattern = `psar:${symbol}:${intervalStr}:*`;
+            const matchingKeys = await redisClient.keys(psarPattern);
+            if (matchingKeys && matchingKeys.length > 0) {
+              console.log(`🔍 [getData_redisv2] Found ${matchingKeys.length} PSAR key(s): ${matchingKeys.join(', ')}`);
+              // Use the first matching key
+              psarDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, matchingKeys[0], lastNCandles);
+              if (psarDataMap) {
+                console.log(`✅ [getData_redisv2] PSAR data from fallback key (${psarDataMap.size} entries)`);
+              }
+            } else {
+              console.log(`⚠️ [getData_redisv2] No PSAR keys found for ${symbol} ${intervalStr}`);
+            }
           }
         }
 
@@ -987,8 +1004,21 @@ class DataController {
             if (stochDataMap) break;
           }
 
+          // Fallback: scan for any stoch_data key for this symbol/interval
           if (!stochDataMap) {
-            console.log(`⚠️ [getData_redisv2] Stochastic data not found`);
+            console.log(`⚠️ [getData_redisv2] Stochastic data not found with settings key, scanning...`);
+            const rc = getRedisClient();
+            const stochPattern = `stoch_data:${symbol}:${intervalStr}:*`;
+            const stochMatchingKeys = await rc.keys(stochPattern);
+            if (stochMatchingKeys && stochMatchingKeys.length > 0) {
+              console.log(`🔍 [getData_redisv2] Found ${stochMatchingKeys.length} stoch key(s): ${stochMatchingKeys.join(', ')}`);
+              stochDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, stochMatchingKeys[0], lastNCandles);
+              if (stochDataMap) {
+                console.log(`✅ [getData_redisv2] Stoch data from fallback key (${stochDataMap.size} entries)`);
+              }
+            } else {
+              console.log(`⚠️ [getData_redisv2] No stoch keys found for ${symbol} ${intervalStr}`);
+            }
           }
         }
 
@@ -3331,6 +3361,174 @@ WHERE id = ?;
       response_code: isDuplicate ? ResponseCodes.OK : ResponseCodes.CREATE_SUCCESS,
       data: { insertId: result.insertId, duplicate: isDuplicate },
     });
+  });
+  // ─── Compute Indicator On-Demand ───────────────────────────────────
+  // Single source of truth for ALL indicator calculations.
+  // Checks Redis for pre-calculated values first; falls back to JS computation.
+  static computeIndicator = catchAsync(async (req, res) => {
+    const { symbol, interval, indicatorType } = req.query;
+    let params;
+    try { params = JSON.parse(req.query.params || '{}'); } catch { params = {}; }
+
+    if (!symbol || !interval || !indicatorType) {
+      return sendResponse({
+        res, success: false,
+        message: "symbol, interval, and indicatorType are required",
+        response_code: ResponseCodes.GET_ERROR,
+      });
+    }
+
+    // Map interval number to string
+    const intervalMap = { 1: '1minute', 2: '2minute', 3: '3minute', 5: '5minute',
+      10: '10minute', 15: '15minute', 30: '30minute', 60: '60minute' };
+    const intervalStr = intervalMap[parseInt(interval)] || '1minute';
+
+    console.log(`[compute-indicator] ${indicatorType} for ${symbol} ${intervalStr} params=${JSON.stringify(params)}`);
+
+    try {
+      // 1. Fetch OHLC data from Redis
+      const candleData = await getCandleDataBySymbol(symbol, intervalStr);
+      if (!candleData || candleData.length === 0) {
+        return sendResponse({
+          res, success: false,
+          message: `No candle data found for ${symbol} ${intervalStr}`,
+          response_code: ResponseCodes.GET_NOT_FOUND,
+        });
+      }
+
+      const high = candleData.map(c => parseFloat(c.high));
+      const low = candleData.map(c => parseFloat(c.low));
+      const close = candleData.map(c => parseFloat(c.close));
+      const timestamps = candleData.map(c => c.datetime);
+
+      // 2. Try Redis pre-calculated data first
+      const redisClient = getRedisClient();
+      let result = null;
+
+      if (indicatorType === 'psar') {
+        const accel = parseFloat(params.acceleration || 0.02);
+        const maxAccel = parseFloat(params.max || params.maximum || 0.2);
+
+        // Scan for matching Redis key
+        const pattern = `psar:${symbol}:${intervalStr}:*`;
+        const keys = await redisClient.keys(pattern);
+
+        // Try to find exact match
+        for (const key of keys) {
+          const parts = key.split(':').pop().split('_');
+          if (parts.length === 2) {
+            const keyMax = parseFloat(parts[0]);
+            const keyAccel = parseFloat(parts[1]);
+            if (Math.abs(keyMax - maxAccel) < 0.001 && Math.abs(keyAccel - accel) < 0.001) {
+              console.log(`[compute-indicator] PSAR Redis hit: ${key}`);
+              const dataMap = await getIndicatorDataBySymbol(symbol, intervalStr, key);
+              if (dataMap) {
+                // Build arrays aligned to timestamps
+                const values = [];
+                const signals = [];
+                for (const ts of timestamps) {
+                  if (dataMap.has(ts)) {
+                    const entry = dataMap.get(ts);
+                    values.push(entry.psar_value !== undefined ? entry.psar_value : entry.value);
+                    signals.push(entry.signal !== undefined ? entry.signal : 0);
+                  } else {
+                    values.push(null);
+                    signals.push(0);
+                  }
+                }
+                result = { indicatorType: 'psar', values, signals, source: 'redis' };
+              }
+              break;
+            }
+          }
+        }
+
+        // Fallback: compute locally
+        if (!result) {
+          console.log(`[compute-indicator] PSAR computing locally (af=${accel}, max=${maxAccel})`);
+          const psarValues = indicators.calculatePSAR(high, low, close, accel, maxAccel);
+          const psarSignals = indicators.getPSARSignals(close, psarValues);
+          result = { indicatorType: 'psar', values: psarValues, signals: psarSignals, source: 'computed' };
+        }
+
+      } else if (indicatorType === 'stoch') {
+        const period = parseInt(params.period || 14);
+        const kSmoothing = parseInt(params.k_smoothing || params.k_avg || 3);
+        const dPeriod = parseInt(params.d_period || params.d_avg || 3);
+
+        // Scan for matching Redis key
+        const pattern = `stoch_data:${symbol}:${intervalStr}:*`;
+        const keys = await redisClient.keys(pattern);
+
+        for (const key of keys) {
+          const parts = key.split(':').pop().split('_');
+          if (parts.length === 3) {
+            const keyPeriod = parseFloat(parts[0]);
+            const keyK = parseFloat(parts[1]);
+            const keyD = parseFloat(parts[2]);
+            if (Math.abs(keyPeriod - period) < 0.1 && Math.abs(keyK - kSmoothing) < 0.1 && Math.abs(keyD - dPeriod) < 0.1) {
+              console.log(`[compute-indicator] Stoch Redis hit: ${key}`);
+              const dataMap = await getIndicatorDataBySymbol(symbol, intervalStr, key);
+              if (dataMap) {
+                const kValues = [];
+                const dValues = [];
+                for (const ts of timestamps) {
+                  if (dataMap.has(ts)) {
+                    const entry = dataMap.get(ts);
+                    kValues.push(entry.k_value !== undefined ? entry.k_value : (entry.value || 0));
+                    dValues.push(entry.d_value !== undefined ? entry.d_value : (entry.value2 || 0));
+                  } else {
+                    kValues.push(0);
+                    dValues.push(0);
+                  }
+                }
+                result = { indicatorType: 'stoch', k_values: kValues, d_values: dValues, source: 'redis' };
+              }
+              break;
+            }
+          }
+        }
+
+        if (!result) {
+          console.log(`[compute-indicator] Stoch computing locally (${period}/${kSmoothing}/${dPeriod})`);
+          const { K, D } = indicators.calcFastStochastics(low, high, close, period, dPeriod, kSmoothing);
+          result = { indicatorType: 'stoch', k_values: K, d_values: D, source: 'computed' };
+        }
+
+      } else if (indicatorType === 'lrc') {
+        const period = parseInt(params.period || 200);
+        const stdMultiplier = parseFloat(params.stdMultiplier || params.stdev || 1);
+
+        // LRC always computed server-side (JS matches Python exactly)
+        console.log(`[compute-indicator] LRC computing (period=${period}, std=${stdMultiplier})`);
+        const { LRL, UCL, LCL } = indicators.linearRegressionChannel(close, period, stdMultiplier);
+        result = { indicatorType: 'lrc', lrl: LRL, ucl: UCL, lcl: LCL, source: 'computed' };
+
+      } else {
+        return sendResponse({
+          res, success: false,
+          message: `Unknown indicator type: ${indicatorType}. Supported: psar, stoch, lrc`,
+          response_code: ResponseCodes.GET_ERROR,
+        });
+      }
+
+      console.log(`[compute-indicator] Done: ${result.indicatorType} source=${result.source} candles=${timestamps.length}`);
+
+      return sendResponse({
+        res, success: true,
+        message: `${indicatorType} computed successfully`,
+        response_code: ResponseCodes.GET_SUCCESS,
+        data: result,
+      });
+
+    } catch (error) {
+      console.error(`[compute-indicator] Error:`, error);
+      return sendResponse({
+        res, success: false,
+        message: `Error computing ${indicatorType}: ${error.message}`,
+        response_code: ResponseCodes.GET_ERROR,
+      });
+    }
   });
 }
 

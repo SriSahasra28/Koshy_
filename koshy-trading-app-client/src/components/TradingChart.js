@@ -3,11 +3,6 @@ import { createChart } from "lightweight-charts";
 import {
   geChartHeight,
   geChart2Height,
-  calculatePSAR,
-  getPosSignals,
-  getNegSignals,
-  linearRegressionChannel,
-  calcFastStochastics,
 } from "../utils/common.utils";
 import moment from "moment";
 import { useDispatch, useSelector } from "react-redux";
@@ -201,57 +196,33 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
               return [...newMarkers1, ...newMarkers2].sort((a, b) => a.time - b.time);
             } else {
-              // Calculate PSAR on frontend (indicator data not available from API)
-              console.log('📊 Calculating PSAR on frontend (indicator data not available)');
-              let dataLength = closeArray.length;
-              if (tickInterval !== '1min') {
-                dataLength = Math.max(1, closeArray.length - 1);
+              // Compute PSAR on backend (single source of truth)
+              console.log('📊 Computing PSAR via backend API');
+              const psarResp = await ChartApis.computeIndicator({
+                symbol: symbolValue, interval: minOptionValue,
+                indicatorType: 'psar',
+                params: { acceleration: parseFloat(acceleration), max: parseFloat(maxAcceleration) },
+              });
+              if (psarResp?.success && psarResp.data) {
+                let dataLength = closeArray.length;
+                if (tickInterval !== '1min') dataLength = Math.max(1, closeArray.length - 1);
+                const psarSignals = psarResp.data.signals.slice(0, dataLength);
+
+                const newMarkers1 = datetimeArray.slice(0, dataLength)
+                  .map((dt, i) => psarSignals[i] === 1 ? {
+                    time: Math.floor(new Date(dt).getTime() / 1000),
+                    position: "belowBar", color: upColor, shape: "arrowUp", text: "", size: 1,
+                  } : null).filter(Boolean);
+
+                const newMarkers2 = datetimeArray.slice(0, dataLength)
+                  .map((dt, i) => psarSignals[i] === -1 ? {
+                    time: Math.floor(new Date(dt).getTime() / 1000),
+                    position: "aboveBar", color: downColor, shape: "arrowDown", text: "", size: 1,
+                  } : null).filter(Boolean);
+
+                return [...newMarkers1, ...newMarkers2].sort((a, b) => a.time - b.time);
               }
-
-              const psar_values = calculatePSAR(
-                highArray.slice(0, dataLength),
-                lowArray.slice(0, dataLength),
-                closeArray.slice(0, dataLength),
-                parseFloat(acceleration),
-                parseFloat(acceleration),
-                parseFloat(maxAcceleration)
-              );
-              const longSignals = getPosSignals(closeArray.slice(0, dataLength), psar_values);
-              const shortSignals = getNegSignals(closeArray.slice(0, dataLength), psar_values);
-
-              const combinedDataLong = datetimeArray.slice(0, dataLength).map((datetime, index) => ({
-                datetime: datetime,
-                signal: longSignals[index],
-              }));
-
-              const combinedDataShort = datetimeArray.slice(0, dataLength).map((datetime, index) => ({
-                datetime: datetime,
-                signal: shortSignals[index],
-              }));
-
-              const newMarkers1 = combinedDataLong
-                ?.filter((element) => element?.signal === 1)
-                ?.map((element) => ({
-                  time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                  position: "belowBar",
-                  color: upColor,
-                  shape: "arrowUp",
-                  text: "",
-                  size: 1,
-                }));
-
-              const newMarkers2 = combinedDataShort
-                ?.filter((element) => element?.signal === 1)
-                ?.map((element) => ({
-                  time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                  position: "aboveBar",
-                  color: downColor,
-                  shape: "arrowDown",
-                  text: "",
-                  size: 1,
-                }));
-
-              return [...newMarkers1, ...newMarkers2].sort((a, b) => a.time - b.time);
+              return [];
             }
           })() : Promise.resolve([]),
 
@@ -286,90 +257,57 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
               return { K: StochKData, D: StochDData };
             } else {
-              // Calculate Stochastic on frontend (indicator data not available from API)
-              console.log('📊 Calculating Stochastic on frontend (indicator data not available)');
-              const { K, D } = calcFastStochastics(
-                lowArray,
-                highArray,
-                closeArray,
-                stoch_period,
-                d_avg,
-                k_avg
-              );
+              // Compute Stochastic via backend API
+              console.log('📊 Computing Stochastic via backend API');
+              const stochResp = await ChartApis.computeIndicator({
+                symbol: symbolValue, interval: minOptionValue,
+                indicatorType: 'stoch',
+                params: { period: stoch_period, k_smoothing: k_avg, d_period: d_avg },
+              });
+              if (stochResp?.success && stochResp.data) {
+                const StochKData = datetimeArray.map((dt, i) => ({
+                  time: Math.floor(new Date(dt).getTime() / 1000),
+                  value: stochResp.data.k_values[i],
+                })).filter(e => e.value !== null && e.value !== undefined && !isNaN(e.value));
 
-              const combinedDataK = datetimeArray.map((datetime, index) => ({
-                datetime: datetime,
-                Stoch_K: K[index],
-              }));
+                const StochDData = datetimeArray.map((dt, i) => ({
+                  time: Math.floor(new Date(dt).getTime() / 1000),
+                  value: stochResp.data.d_values[i],
+                })).filter(e => e.value !== null && e.value !== undefined && !isNaN(e.value));
 
-              const StochKData = combinedDataK
-                ?.filter((element) => element?.Stoch_K !== null && !isNaN(element?.Stoch_K))
-                ?.map((element) => ({
-                  time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                  value: element?.Stoch_K,
-                }));
-
-              const combinedDataD = datetimeArray.map((datetime, index) => ({
-                datetime: datetime,
-                Stoch_D: D[index],
-              }));
-
-              const StochDData = combinedDataD
-                ?.filter((element) => element?.Stoch_D !== null && !isNaN(element?.Stoch_D))
-                ?.map((element) => ({
-                  time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                  value: element?.Stoch_D,
-                }));
-
-              return { K: StochKData, D: StochDData };
+                return { K: StochKData, D: StochDData };
+              }
+              return { K: [], D: [] };
             }
           })() : Promise.resolve({ K: [], D: [] }),
 
-          // LRC
+          // LRC — always computed on backend
           lrcenabled ? (async () => {
-            const { LRL, UCL, LCL } = linearRegressionChannel(
-              closeArray,
-              period,
-              standardDeviation
-            );
+            console.log('📊 Computing LRC via backend API');
+            const lrcResp = await ChartApis.computeIndicator({
+              symbol: symbolValue, interval: minOptionValue,
+              indicatorType: 'lrc',
+              params: { period, stdev: standardDeviation },
+            });
+            if (lrcResp?.success && lrcResp.data) {
+              const new_LRLData = datetimeArray.map((dt, i) => ({
+                time: Math.floor(new Date(dt).getTime() / 1000),
+                value: lrcResp.data.lrl[i],
+              })).filter(e => e.value !== null);
 
-            const combinedLRL = datetimeArray.map((datetime, index) => ({
-              datetime: datetime,
-              LRL: LRL[index],
-            }));
+              const new_UCLData = datetimeArray.map((dt, i) => ({
+                time: Math.floor(new Date(dt).getTime() / 1000),
+                value: lrcResp.data.ucl[i],
+              })).filter(e => e.value !== null);
 
-            const new_LRLData = combinedLRL
-              ?.filter((element) => element?.LRL !== null)
-              ?.map((element) => ({
-                time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                value: element?.LRL,
-              }));
+              const new_LCLData = datetimeArray.map((dt, i) => ({
+                time: Math.floor(new Date(dt).getTime() / 1000),
+                value: lrcResp.data.lcl[i],
+              })).filter(e => e.value !== null);
 
-            const combinedUCL = datetimeArray.map((datetime, index) => ({
-              datetime: datetime,
-              UCL: UCL[index],
-            }));
-
-            const new_UCLData = combinedUCL
-              ?.filter((element) => element?.UCL !== null)
-              ?.map((element) => ({
-                time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                value: element?.UCL,
-              }));
-
-            const combinedLCL = datetimeArray.map((datetime, index) => ({
-              datetime: datetime,
-              LCL: LCL[index],
-            }));
-
-            const new_LCLData = combinedLCL
-              ?.filter((element) => element?.LCL !== null)
-              ?.map((element) => ({
-                time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                value: element?.LCL,
-              }));
-
-            return { LRL: new_LRLData || [], UCL: new_UCLData || [], LCL: new_LCLData || [] };
+              return { LRL: new_LRLData, UCL: new_UCLData, LCL: new_LCLData };
+            }
+            return { LRL: [], UCL: [], LCL: [] };
           })() : Promise.resolve({ LRL: [], UCL: [], LCL: [] }),
 
           // Alerts
@@ -960,62 +898,29 @@ function TradingChart({ instrumentToken, tickInterval }) {
           (response.data[0].stoch_k !== undefined || response.data[0].stoch_d !== undefined);
 
         if (lrcenabled) {
-          //console.log('in lrcenabled LRC period', period);
-          const ohlcData = response.data?.map((element) => ({
-            datetime: element?.datetime,
-            open: element?.open,
-            high: element?.high,
-            low: element?.low,
-            close: element?.close,
-          }));
+          // Compute LRC via backend API
+          console.log('📊 Refresh: Computing LRC via backend API');
+          const lrcResp = await ChartApis.computeIndicator({
+            symbol: symbolValue, interval: minOptionValue,
+            indicatorType: 'lrc',
+            params: { period, stdev: standardDeviation },
+          });
+          if (lrcResp?.success && lrcResp.data) {
+            setLRLData(datetimeArray.map((dt, i) => ({
+              time: Math.floor(new Date(dt).getTime() / 1000),
+              value: lrcResp.data.lrl[i],
+            })).filter(e => e.value !== null));
 
-          const datetimeArray = ohlcData.map((dataPoint) => dataPoint.datetime);
-          const closeArray = ohlcData.map((dataPoint) => dataPoint.close);
+            setUCLData(datetimeArray.map((dt, i) => ({
+              time: Math.floor(new Date(dt).getTime() / 1000),
+              value: lrcResp.data.ucl[i],
+            })).filter(e => e.value !== null));
 
-          const { LRL, UCL, LCL } = linearRegressionChannel(
-            closeArray,
-            period,
-            standardDeviation
-          );
-
-          const combinedLRL = datetimeArray.map((datetime, index) => ({
-            datetime: datetime,
-            LRL: LRL[index],
-          }));
-
-          const new_LRLData = combinedLRL
-            ?.filter((element) => element?.LRL !== null)
-            ?.map((element) => ({
-              time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-              value: element?.LRL,
-            }));
-          const combinedUCL = datetimeArray.map((datetime, index) => ({
-            datetime: datetime,
-            UCL: UCL[index],
-          }));
-          const combinedLCL = datetimeArray.map((datetime, index) => ({
-            datetime: datetime,
-            LCL: LCL[index],
-          }));
-          setLRLData(new_LRLData || []);
-
-          const new_UCLData = combinedUCL
-            ?.filter((element) => element?.UCL !== null)
-            ?.map((element) => ({
-              time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-              value: element?.UCL,
-            }));
-
-          setUCLData(new_UCLData || []);
-
-          const new_LCLData = combinedLCL
-            ?.filter((element) => element?.LCL !== null)
-            ?.map((element) => ({
-              time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-              value: element?.LCL,
-            }));
-
-          setLCLData(new_LCLData || []);
+            setLCLData(datetimeArray.map((dt, i) => ({
+              time: Math.floor(new Date(dt).getTime() / 1000),
+              value: lrcResp.data.lcl[i],
+            })).filter(e => e.value !== null));
+          }
         } else {
           //console.log("in else lrcenabled refresh");
           setLCLData([]);
@@ -1068,54 +973,29 @@ function TradingChart({ instrumentToken, tickInterval }) {
             );
             setMarkers(newMarkers);
           } else {
-            // Calculate PSAR on frontend (indicator data not available from API)
-            console.log('📊 Refresh: Calculating PSAR on frontend (indicator data not available)');
-            const psar_values = calculatePSAR(
-              highArray,
-              lowArray,
-              closeArray,
-              parseFloat(acceleration),
-              parseFloat(acceleration),
-              parseFloat(maxAcceleration)
-            );
-            const longSignals = getPosSignals(closeArray, psar_values);
-            const shortSignals = getNegSignals(closeArray, psar_values);
+            // Compute PSAR via backend API
+            console.log('📊 Refresh: Computing PSAR via backend API');
+            const psarResp = await ChartApis.computeIndicator({
+              symbol: symbolValue, interval: minOptionValue,
+              indicatorType: 'psar',
+              params: { acceleration: parseFloat(acceleration), max: parseFloat(maxAcceleration) },
+            });
+            if (psarResp?.success && psarResp.data) {
+              const psarSignals = psarResp.data.signals;
+              const newMarkers1 = datetimeArray
+                .map((dt, i) => psarSignals[i] === 1 ? {
+                  time: Math.floor(new Date(dt).getTime() / 1000),
+                  position: "belowBar", color: upColor, shape: "arrowUp", text: "", size: 1,
+                } : null).filter(Boolean);
 
-            const combinedDataLong = datetimeArray.map((datetime, index) => ({
-              datetime: datetime,
-              signal: longSignals[index],
-            }));
+              const newMarkers2 = datetimeArray
+                .map((dt, i) => psarSignals[i] === -1 ? {
+                  time: Math.floor(new Date(dt).getTime() / 1000),
+                  position: "aboveBar", color: downColor, shape: "arrowDown", text: "", size: 1,
+                } : null).filter(Boolean);
 
-            const combinedDataShort = datetimeArray.map((datetime, index) => ({
-              datetime: datetime,
-              signal: shortSignals[index],
-            }));
-
-            const newMarkers1 = combinedDataLong
-              ?.filter((element) => element?.signal === 1)
-              ?.map((element) => ({
-                time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                position: "belowBar",
-                color: upColor,
-                shape: "arrowUp",
-                text: "",
-                size: 1,
-              }));
-
-            const newMarkers2 = combinedDataShort
-              ?.filter((element) => element?.signal === 1)
-              ?.map((element) => ({
-                time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                position: "aboveBar",
-                color: downColor,
-                shape: "arrowDown",
-                text: "",
-                size: 1,
-              }));
-
-            newMarkers = [...newMarkers1, ...newMarkers2].sort(
-              (a, b) => a.time - b.time
-            );
+              newMarkers = [...newMarkers1, ...newMarkers2].sort((a, b) => a.time - b.time);
+            }
             setMarkers(newMarkers);
           }
         } else {
@@ -1157,47 +1037,24 @@ function TradingChart({ instrumentToken, tickInterval }) {
 
             setStochasticsD(StochDData);
           } else {
-            // Calculate Stochastic on frontend (indicator data not available from API)
-            console.log('📊 Refresh: Calculating Stochastic on frontend (indicator data not available)');
-            const { K, D } = calcFastStochastics(
-              lowArray,
-              highArray,
-              closeArray,
-              stoch_period,
-              d_avg,
-              k_avg
-            );
+            // Compute Stochastic via backend API
+            console.log('📊 Refresh: Computing Stochastic via backend API');
+            const stochResp = await ChartApis.computeIndicator({
+              symbol: symbolValue, interval: minOptionValue,
+              indicatorType: 'stoch',
+              params: { period: stoch_period, k_smoothing: k_avg, d_period: d_avg },
+            });
+            if (stochResp?.success && stochResp.data) {
+              setStochasticsK(datetimeArray.map((dt, i) => ({
+                time: Math.floor(new Date(dt).getTime() / 1000),
+                value: stochResp.data.k_values[i],
+              })).filter(e => e.value !== null && e.value !== undefined && !isNaN(e.value)));
 
-            const combinedDataK = datetimeArray.map((datetime, index) => ({
-              datetime: datetime,
-              Stoch_K: K[index],
-            }));
-
-            const StochKData = combinedDataK
-              ?.filter(
-                (element) => element?.Stoch_K !== null && !isNaN(element?.Stoch_K)
-              )
-              ?.map((element) => ({
-                time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                value: element?.Stoch_K,
-              }));
-            setStochasticsK(StochKData);
-
-            const combinedDataD = datetimeArray.map((datetime, index) => ({
-              datetime: datetime,
-              Stoch_D: D[index],
-            }));
-
-            const StochDData = combinedDataD
-              ?.filter(
-                (element) => element?.Stoch_D !== null && !isNaN(element?.Stoch_D)
-              )
-              ?.map((element) => ({
-                time: Math.floor(new Date(element?.datetime).getTime() / 1000),
-                value: element?.Stoch_D,
-              }));
-
-            setStochasticsD(StochDData);
+              setStochasticsD(datetimeArray.map((dt, i) => ({
+                time: Math.floor(new Date(dt).getTime() / 1000),
+                value: stochResp.data.d_values[i],
+              })).filter(e => e.value !== null && e.value !== undefined && !isNaN(e.value)));
+            }
           }
         } else {
           setStochasticsK([]);

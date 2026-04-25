@@ -13,10 +13,11 @@ export class ChartApis {
     console.log("symbol:", symbol);
     console.log("interval:", interval);
     try {
-      // Use v3 endpoint with improved resampling logic
+      // Use v2 endpoint which includes pre-calculated indicator data (PSAR, Stoch)
+      // from Redis — ensures chart PSAR matches alert engine PSAR exactly (both use talib.SAR)
       const res = await axiosInstance({
         method: "get",
-        url: "/heikinv3",
+        url: "/heikinv2",
         params: {
           symbol,
           interval,
@@ -1045,6 +1046,44 @@ export class ChartApis {
         success: false,
         error: "Something went wrong! getScanIndicatorsById",
         data: error?.response?.data ?? null,
+      };
+    }
+  };
+
+  /**
+   * Compute indicator on-demand (server-side).
+   * All indicator math happens on the backend — frontend is a pure rendering layer.
+   * Checks Redis for pre-calculated values first, falls back to JS computation.
+   *
+   * @param {string} symbol
+   * @param {number} interval
+   * @param {string} indicatorType - 'psar' | 'stoch' | 'lrc'
+   * @param {object} params - indicator-specific params
+   * @returns {object} { values, signals } for psar, { k_values, d_values } for stoch, { lrl, ucl, lcl } for lrc
+   */
+  static computeIndicator = async ({ symbol, interval, indicatorType, params }) => {
+    try {
+      const res = await axiosInstance({
+        method: "get",
+        url: "/compute-indicator",
+        params: {
+          symbol,
+          interval,
+          indicatorType,
+          params: JSON.stringify(params),
+        },
+      });
+      return {
+        success: res?.data?.success ?? false,
+        data: res?.data?.data ?? null,
+        error: null,
+      };
+    } catch (error) {
+      console.error(`computeIndicator(${indicatorType}) failed:`, error);
+      return {
+        success: false,
+        error: error?.message,
+        data: null,
       };
     }
   };

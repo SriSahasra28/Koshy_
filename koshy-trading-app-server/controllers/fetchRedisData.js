@@ -410,7 +410,9 @@ async function getIndicatorDataBySymbol(symbol, interval, indicatorKey, lastNCan
     }
 }
 
-module.exports = { getOhlcBySymbol, getResampledOhlcBySymbol, getCandleDataBySymbol, getIndicatorDataBySymbol };
+function getRedisClient() { return client; }
+
+module.exports = { getOhlcBySymbol, getResampledOhlcBySymbol, getCandleDataBySymbol, getIndicatorDataBySymbol, getRedisClient };
 
 async function shutdown() {
     await client.quit();
