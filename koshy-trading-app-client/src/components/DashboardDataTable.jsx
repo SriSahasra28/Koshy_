@@ -45,77 +45,72 @@ const DashboardDataTable = () => {
   const psarData = useSelector((state) => state?.header?.markersValues);
   const websocketRef = useRef(null); // Ref to store the WebSocket connection
 
-  const symbolSetHandler = (symbol, timeframe, scanid) => {
-    const fetchIndicators = async (scanid) => {
-      try {
-        let res = await ChartApis.getScanIndicatorsById({ scanid });
+  const symbolSetHandler = async (symbol, timeframe, scanid) => {
+    // Fetch indicators FIRST so Redux state has correct values before TradingChart remounts
+    try {
+      let res = await ChartApis.getScanIndicatorsById({ scanid });
 
-        if (res.success) {
-          const { lrc, psar, stoch } = res.data;
+      if (res.success) {
+        const { lrc, psar, stoch } = res.data;
 
-          // Separate values into string variables
-          const lrcValue = lrc ? String(lrc) : "";
-          const psarValue = psar ? String(psar) : "";
-          const stochValue = stoch ? String(stoch) : "";
+        const lrcValue = lrc ? String(lrc) : "";
+        const psarValue = psar ? String(psar) : "";
+        const stochValue = stoch ? String(stoch) : "";
 
-          const [lrc_period, lrc_standardDeviation] = lrcValue.split(",");
-          const [psar_acceleration, psar_max_acceleration] =
-            psarValue.split(",");
-          const [period, k_avg, d_avg] = stochValue.split(",");
+        const [lrc_period, lrc_standardDeviation] = lrcValue.split(",");
+        const [psar_acceleration, psar_max_acceleration] =
+          psarValue.split(",");
+        const [period, k_avg, d_avg] = stochValue.split(",");
 
-          console.log("DashboardDataTable: lrc_period:", lrc_period);
-          console.log("lrc_standardDeviation:", lrc_standardDeviation);
-          // Auto-enable indicators that have config from the scan
-          dispatch(
-            headerActions.setLRCValue({
-              period: lrc_period,
-              standardDeviation: lrc_standardDeviation,
-              upperColor: lrcData.upperColor,
-              lowerColor: lrcData.lowerColor,
-              linColor: lrcData.linColor,
-              lrcenabled: lrcValue ? true : lrcData.lrcenabled,
-            })
-          );
+        console.log("DashboardDataTable: lrc_period:", lrc_period);
+        console.log("lrc_standardDeviation:", lrc_standardDeviation);
 
-          dispatch(
-            headerActions.setStochValue({
-              stoch_period: period,
-              k_avg: k_avg,
-              d_avg: d_avg,
-              k_color: stochData.k_color,
-              d_color: stochData.d_color,
-              k_line_size: stochData.k_line_size,
-              d_line_size: stochData.d_line_size,
-              stochEnabled: stochValue ? true : stochData.stochEnabled,
-            })
-          );
-          // Update PSAR as per alert — auto-enable if scan has PSAR config
-          console.log("psar_acceleration:", psar_acceleration);
-          console.log("psar_max_acceleration:", psar_max_acceleration);
+        dispatch(
+          headerActions.setLRCValue({
+            period: lrc_period,
+            standardDeviation: lrc_standardDeviation,
+            upperColor: lrcData.upperColor,
+            lowerColor: lrcData.lowerColor,
+            linColor: lrcData.linColor,
+            lrcenabled: lrcValue ? true : lrcData.lrcenabled,
+          })
+        );
 
-          dispatch(
-            headerActions.setMarkersValue({
-              acceleration: psar_acceleration,
-              maxAcceleration: psar_max_acceleration,
-              upColor: psarData.upColor,
-              downColor: psarData.downColor,
-              enabled: psarValue ? true : psarData.enabled,
-            })
-          );
-        } else {
-          console.error("Failed to retrieve indicators:", res.message);
-        }
-      } catch (err) {
-        console.error("Something went wrong fetching indicators", err);
+        dispatch(
+          headerActions.setStochValue({
+            stoch_period: period,
+            k_avg: k_avg,
+            d_avg: d_avg,
+            k_color: stochData.k_color,
+            d_color: stochData.d_color,
+            k_line_size: stochData.k_line_size,
+            d_line_size: stochData.d_line_size,
+            stochEnabled: stochValue ? true : stochData.stochEnabled,
+          })
+        );
+
+        console.log("psar_acceleration:", psar_acceleration);
+        console.log("psar_max_acceleration:", psar_max_acceleration);
+
+        dispatch(
+          headerActions.setMarkersValue({
+            acceleration: psar_acceleration,
+            maxAcceleration: psar_max_acceleration,
+            upColor: psarData.upColor,
+            downColor: psarData.downColor,
+            enabled: psarValue ? true : psarData.enabled,
+          })
+        );
+      } else {
+        console.error("Failed to retrieve indicators:", res.message);
       }
-    };
+    } catch (err) {
+      console.error("Something went wrong fetching indicators", err);
+    }
 
-    fetchIndicators(scanid);
-
+    // NOW dispatch symbol/timeframe change — TradingChart remounts with indicators already in Redux
     dispatch(headerActions.setSymbolValue({ symbol }));
     dispatch(headerActions.setMinOptionValue({ value: timeframe }));
-    // console.log('set alertColor', alertColor);
-    // dispatch(headerActions.setAlertColor({ value: alertColor }));
   };
 
   const fetchAlerts = async ({ resetAlerts = false }) => {

@@ -376,27 +376,52 @@ export const getNegSignals = (close, psarValues) => {
 };
 
 export const linearRegressionChannel = (close, period, stdMultiplier) => {
-  const closeSlice = close.slice(-period);
-  const X = [...Array(closeSlice.length).keys()];
-  const N = X.length;
-  const sum_X = X.reduce((acc, val) => acc + val, 0);
-  const sum_Y = closeSlice.reduce((acc, val) => acc + val, 0);
-  const sum_XY = X.reduce((acc, val, idx) => acc + val * closeSlice[idx], 0);
-  const sum_X2 = X.reduce((acc, val) => acc + val * val, 0);
-  const slope = (N * sum_XY - sum_X * sum_Y) / (N * sum_X2 - sum_X * sum_X);
-  const intercept = (sum_Y - slope * sum_X) / N;
-  const LRL = X.map(x => intercept + slope * x);
-  const residuals = closeSlice.map((val, idx) => val - LRL[idx]);
-  const stdDev = Math.sqrt(residuals.reduce((acc, val) => acc + val * val, 0) / (residuals.length - 1));
-  const UCL = LRL.map(val => val + stdMultiplier * stdDev);
-  const LCL = LRL.map(val => val - stdMultiplier * stdDev);
- 
-  const nullPadding = Array(close.length - LRL.length).fill(null);
-  const paddedLRL = [...nullPadding, ...LRL];
-  const paddedUCL = [...nullPadding, ...UCL];
-  const paddedLCL = [...nullPadding, ...LCL];
+  const n = close.length;
+  const LRL = new Array(n).fill(null);
+  const UCL = new Array(n).fill(null);
+  const LCL = new Array(n).fill(null);
 
-  return { LRL: paddedLRL, UCL: paddedUCL, LCL: paddedLCL };
+  // Sliding window — matches Python linear_regression_channel_numba_sliding exactly
+  for (let i = period - 1; i < n; i++) {
+    const windowClose = close.slice(i - period + 1, i + 1);
+    const N = windowClose.length;
+
+    // Build X = [0, 1, 2, ..., N-1]
+    let sum_X = 0, sum_Y = 0, sum_XY = 0, sum_X2 = 0;
+    for (let j = 0; j < N; j++) {
+      sum_X += j;
+      sum_Y += windowClose[j];
+      sum_XY += j * windowClose[j];
+      sum_X2 += j * j;
+    }
+
+    const denominator = N * sum_X2 - sum_X * sum_X;
+    let slope = 0;
+    let intercept = sum_Y / N;
+    if (denominator !== 0) {
+      slope = (N * sum_XY - sum_X * sum_Y) / denominator;
+      intercept = (sum_Y - slope * sum_X) / N;
+    }
+
+    // Regression line values for the window
+    // LRL[i] = endpoint of regression line (last value in window)
+    const lrlEndpoint = intercept + slope * (N - 1);
+
+    // Standard deviation of residuals (population std, matches numpy np.std)
+    let sumResidualsSq = 0;
+    for (let j = 0; j < N; j++) {
+      const lrlVal = intercept + slope * j;
+      const residual = windowClose[j] - lrlVal;
+      sumResidualsSq += residual * residual;
+    }
+    const stdDev = Math.sqrt(sumResidualsSq / N);
+
+    LRL[i] = lrlEndpoint;
+    UCL[i] = lrlEndpoint + stdMultiplier * stdDev;
+    LCL[i] = lrlEndpoint - stdMultiplier * stdDev;
+  }
+
+  return { LRL, UCL, LCL };
 };
 
 export const calcFastStochastics = (low, high, close, lookbackPeriod, dPeriod, kSmoothingPeriod = 3) => {

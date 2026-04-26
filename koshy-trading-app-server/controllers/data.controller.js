@@ -3499,10 +3499,47 @@ WHERE id = ?;
         const period = parseInt(params.period || 200);
         const stdMultiplier = parseFloat(params.stdMultiplier || params.stdev || 1);
 
-        // LRC always computed server-side (JS matches Python exactly)
-        console.log(`[compute-indicator] LRC computing (period=${period}, std=${stdMultiplier})`);
-        const { LRL, UCL, LCL } = indicators.linearRegressionChannel(close, period, stdMultiplier);
-        result = { indicatorType: 'lrc', lrl: LRL, ucl: UCL, lcl: LCL, source: 'computed' };
+        // Redis-first: read Python's pre-calculated LRC values (same math as alert engine)
+        const lrcPattern = `lrc:${symbol}:${intervalStr}:*`;
+        const lrcKeys = await redisClient.keys(lrcPattern);
+
+        for (const key of lrcKeys) {
+          const paramsPart = key.split(':').pop().split('_');
+          if (paramsPart.length === 2) {
+            const keyPeriod = parseFloat(paramsPart[0]);
+            const keyStdev = parseFloat(paramsPart[1]);
+            if (Math.abs(keyPeriod - period) < 0.1 && Math.abs(keyStdev - stdMultiplier) < 0.01) {
+              console.log(`[compute-indicator] LRC Redis hit: ${key}`);
+              const dataMap = await getIndicatorDataBySymbol(symbol, intervalStr, key);
+              if (dataMap) {
+                const lrlValues = [];
+                const uclValues = [];
+                const lclValues = [];
+                for (const ts of timestamps) {
+                  if (dataMap.has(ts)) {
+                    const entry = dataMap.get(ts);
+                    lrlValues.push(entry.lrl_value ?? null);
+                    uclValues.push(entry.ucl_value ?? null);
+                    lclValues.push(entry.lcl_value ?? null);
+                  } else {
+                    lrlValues.push(null);
+                    uclValues.push(null);
+                    lclValues.push(null);
+                  }
+                }
+                result = { indicatorType: 'lrc', lrl: lrlValues, ucl: uclValues, lcl: lclValues, source: 'redis' };
+              }
+              break;
+            }
+          }
+        }
+
+        // Fallback: compute locally
+        if (!result) {
+          console.log(`[compute-indicator] LRC computing locally (period=${period}, std=${stdMultiplier})`);
+          const { LRL, UCL, LCL } = indicators.linearRegressionChannel(close, period, stdMultiplier);
+          result = { indicatorType: 'lrc', lrl: LRL, ucl: UCL, lcl: LCL, source: 'computed' };
+        }
 
       } else {
         return sendResponse({
