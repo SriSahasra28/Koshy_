@@ -3386,8 +3386,8 @@ WHERE id = ?;
     console.log(`[compute-indicator] ${indicatorType} for ${symbol} ${intervalStr} params=${JSON.stringify(params)}`);
 
     try {
-      // 1. Fetch OHLC data from Redis
-      const candleData = await getCandleDataBySymbol(symbol, intervalStr);
+      // 1. Fetch OHLC data from Redis (use same lastNCandles as getData_redisv2 to keep index alignment)
+      const candleData = await getCandleDataBySymbol(symbol, intervalStr, 50000);
       if (!candleData || candleData.length === 0) {
         return sendResponse({
           res, success: false,
@@ -3510,7 +3510,7 @@ WHERE id = ?;
             const keyStdev = parseFloat(paramsPart[1]);
             if (Math.abs(keyPeriod - period) < 0.1 && Math.abs(keyStdev - stdMultiplier) < 0.01) {
               console.log(`[compute-indicator] LRC Redis hit: ${key}`);
-              const dataMap = await getIndicatorDataBySymbol(symbol, intervalStr, key);
+              const dataMap = await getIndicatorDataBySymbol(symbol, intervalStr, key, 50000);
               if (dataMap) {
                 const lrlValues = [];
                 const uclValues = [];
