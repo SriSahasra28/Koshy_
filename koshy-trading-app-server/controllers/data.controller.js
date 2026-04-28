@@ -829,644 +829,218 @@ class DataController {
   static getData_redisv2 = catchAsync(async (req, res) => {
     const { symbol, interval } = req.query;
 
-    // Convert interval to interval string format (e.g., '1minute', '2minute', etc.)
+    // Convert interval to string format
     let intervalStr = '1minute';
-    if (interval == CommonEnums.intervals.two_min) {
-      intervalStr = '2minute';
-    } else if (interval == CommonEnums.intervals.three_min) {
-      intervalStr = '3minute';
-    } else if (interval == CommonEnums.intervals.five_min) {
-      intervalStr = '5minute';
-    } else if (interval == CommonEnums.intervals.ten_min) {
-      intervalStr = '10minute';
-    } else if (interval == CommonEnums.intervals.fifteen_min) {
-      intervalStr = '15minute';
-    } else if (interval == CommonEnums.intervals.thirty_min) {
-      intervalStr = '30minute';
-    } else if (interval == CommonEnums.intervals.one_hour) {
-      intervalStr = '60minute';
-    }
+    if (interval == CommonEnums.intervals.two_min) intervalStr = '2minute';
+    else if (interval == CommonEnums.intervals.three_min) intervalStr = '3minute';
+    else if (interval == CommonEnums.intervals.five_min) intervalStr = '5minute';
+    else if (interval == CommonEnums.intervals.ten_min) intervalStr = '10minute';
+    else if (interval == CommonEnums.intervals.fifteen_min) intervalStr = '15minute';
+    else if (interval == CommonEnums.intervals.thirty_min) intervalStr = '30minute';
+    else if (interval == CommonEnums.intervals.one_hour) intervalStr = '60minute';
 
-    // OPTIMIZED: Limit number of candles fetched for faster API response
-    // For 1min and 2min intervals, fetch only last N candles (much faster)
-    // For longer intervals, fetch more candles or all
-    let lastNCandles = 50000; // null = fetch all in date range
-    // if (interval == CommonEnums.intervals.one_min) {
-    //   lastNCandles = 1000; // Last 1000 candles (~16.7 hours of 1-min data)
-    // } else if (interval == CommonEnums.intervals.two_min) {
-    //   lastNCandles = 750;  // Last 750 candles (~25 hours of 2-min data)
-    // } else if (interval == CommonEnums.intervals.three_min) {
-    //   lastNCandles = 500;  // Last 500 candles (~25 hours of 3-min data)
-    // } else if (interval == CommonEnums.intervals.five_min) {
-    //   lastNCandles = 500;  // Last 500 candles (~41.7 hours of 5-min data)
-    // }
-    // For 10min, 15min, 30min, 60min: fetch all (null = no limit)
+    const resampleMinutes = parseInt(intervalStr.replace('minute', '')) || 1;
 
     try {
-      // FIRST: Check if candle_data key exists (contains OHLC + HA only, no indicators)
-      console.log(`🔍 [getData_redisv2] Checking candle_data for ${symbol} ${intervalStr}${lastNCandles ? ` (last ${lastNCandles} candles)` : ''}`);
-      const candleData = await getCandleDataBySymbol(symbol, intervalStr, lastNCandles);
+      // ============================================================
+      // STEP 1: Get 1-minute source data (single source of truth)
+      // ============================================================
+      console.log(`[getData_redisv2] ${symbol} ${intervalStr} — fetching 1min source`);
 
-      let chartData = [];
+      let oneMinData = await getOhlcBySymbol(symbol);
+
+      // Fallback: if no 1min data in Redis, fetch from Kite API
+      if (!oneMinData || oneMinData.length === 0) {
+        console.log(`[getData_redisv2] No 1min Redis data — trying Kite API for ${symbol}`);
+        try {
+          const tokenResult = await db.sequelize.query(
+            "SELECT instrument_token FROM instruments WHERE tradingsymbol = :symbol",
+            { replacements: { symbol: symbol?.trim() }, type: db.sequelize.QueryTypes.SELECT }
+          );
+
+          if (!tokenResult || tokenResult.length === 0 || !tokenResult[0]?.instrument_token) {
+            return sendResponse({ res, success: false, message: "Instrument not found", response_code: ResponseCodes.GET_NOT_FOUND });
+          }
+
+          const token = tokenResult[0].instrument_token;
+          const to_date = new Date();
+          const from_date = new Date(to_date);
+          from_date.setDate(to_date.getDate() - 28);
+
+          const kiteData = await fetchHistoricalData(token, "minute",
+            from_date.toISOString().slice(0, 19).replace("T", " "),
+            to_date.toISOString().slice(0, 19).replace("T", " ")
+          );
+
+          if (!kiteData || kiteData.length === 0) {
+            return sendResponse({ res, success: false, message: `No historical data found for ${symbol}`, response_code: ResponseCodes.GET_NOT_FOUND });
+          }
+
+          // Kite returns IST datetime strings — use directly
+          oneMinData = kiteData.map(row => ({
+            datetime: row.datetime,
+            open: parseFloat(row.open), high: parseFloat(row.high),
+            low: parseFloat(row.low), close: parseFloat(row.close),
+            volume: parseFloat(row.volume || 0)
+          }));
+          console.log(`[getData_redisv2] Kite: ${oneMinData.length} 1min candles`);
+        } catch (kiteError) {
+          console.error(`[getData_redisv2] Kite fetch error:`, kiteError.message);
+          return sendResponse({ res, success: false, message: "Error fetching historical data", response_code: ResponseCodes.GET_ERROR });
+        }
+      } else {
+        // Redis returns Date objects — convert to IST strings
+        oneMinData = oneMinData.map(row => ({
+          datetime: row.datetime instanceof Date
+            ? moment(row.datetime).tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss')
+            : (typeof row.datetime === 'string' ? row.datetime : moment(row.datetime).tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss')),
+          open: parseFloat(row.open), high: parseFloat(row.high),
+          low: parseFloat(row.low), close: parseFloat(row.close),
+          volume: parseFloat(row.volume || 0)
+        }));
+        console.log(`[getData_redisv2] Redis: ${oneMinData.length} 1min candles`);
+      }
+
+      // ============================================================
+      // STEP 2: Resample to requested timeframe
+      // ============================================================
+      let results = oneMinData;
+      if (resampleMinutes > 1) {
+        results = DataController.resampleOHLCData(oneMinData, resampleMinutes);
+        if (!results || results.length === 0) {
+          return sendResponse({ res, success: false, message: `No data after resampling to ${resampleMinutes}min`, response_code: ResponseCodes.GET_NOT_FOUND });
+        }
+        console.log(`[getData_redisv2] Resampled: ${results.length} ${resampleMinutes}min candles`);
+      }
+
+      // ============================================================
+      // STEP 3: Calculate Heikin-Ashi
+      // ============================================================
+      const openPrices = results.map(r => parseFloat(r.open));
+      const highPrices = results.map(r => parseFloat(r.high));
+      const lowPrices = results.map(r => parseFloat(r.low));
+      const closePrices = results.map(r => parseFloat(r.close));
+
+      const { haOpen, haHigh, haLow, haClose } = calcHeikinAshi(openPrices, highPrices, lowPrices, closePrices);
+
+      let chartData = results.map((row, i) => ({
+        datetime: row.datetime,
+        open: row.open, high: row.high, low: row.low, close: row.close,
+        volume: row.volume || 0,
+        ha_open: haOpen[i], ha_high: haHigh[i], ha_low: haLow[i], ha_close: haClose[i]
+      }));
+
+      // ============================================================
+      // STEP 4: Merge indicators (PSAR, Stochastic) from Redis
+      // ============================================================
+      const lastNCandles = 50000;
       let psarDataMap = null;
       let stochDataMap = null;
 
-      // Freshness gate: during market hours, stale candle_data for non-1min
-      // intervals (symbols not in an active scan get updated only by the
-      // end-of-day batch) forces the on-the-fly resample path below so
-      // today's candles are included.
-      let candleDataFresh = true;
-      if (candleData && candleData.length > 0 && intervalStr !== '1minute') {
-        const nowIST = moment().tz('Asia/Kolkata');
-        const mins = nowIST.hour() * 60 + nowIST.minute();
-        const dayOfWeek = nowIST.day(); // 0=Sun, 6=Sat
-        const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-        const inMarketHours = isWeekday && mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
-        const lastTs = moment.tz(candleData[candleData.length - 1].datetime, 'Asia/Kolkata');
-        const isFromToday = lastTs.isSame(nowIST, 'day');
-        if (inMarketHours && !isFromToday) {
-          console.log(`⏭️ [getData_redisv2] candle_data stale for ${symbol} ${intervalStr} (last=${lastTs.format()}) — falling through to on-the-fly resample`);
-          candleDataFresh = false;
+      // Helper: format numbers to match Python Redis key format
+      const formatPythonFloat = (val) => {
+        const num = parseFloat(val);
+        if (Number.isInteger(num)) return [`${num}.0`, num.toString()];
+        return [num.toString().replace(/\.?0+$/, '')];
+      };
+
+      // Helper: check if Redis indicator data is stale (none of last N chart timestamps match)
+      const chartTimestamps = chartData.map(r => r.datetime ? r.datetime.trim() : null).filter(Boolean);
+      const isIndicatorStale = (dataMap) => {
+        const tail = chartTimestamps.slice(-20);
+        const matched = tail.filter(ts => dataMap.has(ts)).length;
+        if (matched === 0) {
+          console.log(`[getData_redisv2] Indicator data stale: 0/${tail.length} recent timestamps matched — skipping`);
+          return true;
         }
-      }
+        return false;
+      };
 
-      if (candleData && candleData.length > 0 && candleDataFresh) {
-        // candle_data exists - return OHLC + HA
-        console.log(`✅ [getData_redisv2] Using candle_data for ${symbol} ${intervalStr} (${candleData.length} candles)`);
-
-        // Format the data to match frontend expectations (OHLC + HA)
-        chartData = candleData.map(row => ({
-          datetime: row.datetime, // Already formatted string
-          open: row.open,
-          high: row.high,
-          low: row.low,
-          close: row.close,
-          volume: row.volume || 0,
-          // HA values already included (universal, same for all conditions)
-          ha_open: row.ha_open,
-          ha_high: row.ha_high,
-          ha_low: row.ha_low,
-          ha_close: row.ha_close
-        }));
-
-        // NOW: Check for indicator data (PSAR and Stochastic)
-        // Get PSAR settings to construct key
-        const [psarSettings] = await db.sequelize.query(
-          `SELECT acceleration, max_acceleration FROM psar_settings LIMIT 1;`
-        );
-
-        // Get Stochastic settings to construct key
-        const [stochSettings] = await db.sequelize.query(
-          `SELECT period, k_avg, d_avg FROM fast_stoch_settings LIMIT 1;`
-        );
-
+      // PSAR lookup
+      try {
+        const [psarSettings] = await db.sequelize.query(`SELECT acceleration, max_acceleration FROM psar_settings LIMIT 1;`);
         if (psarSettings && psarSettings.length > 0) {
-          const psarSetting = psarSettings[0];
-          // Helper function to format numbers like Python f-strings
-          // Based on Redis keys: integers stored as "14.0", decimals as "0.5" (no trailing zeros)
-          const formatPythonFloat = (val) => {
-            const num = parseFloat(val);
-            // Python f-strings: integers become "14.0", decimals keep their format without trailing zeros
-            if (Number.isInteger(num)) {
-              return [`${num}.0`, num.toString()]; // Try "14.0" first (most common in Redis)
-            }
-            // For decimals, remove trailing zeros (0.5000 -> 0.5, 0.05 -> 0.05)
-            return [num.toString().replace(/\.?0+$/, '')];
-          };
-
-          const maxAccelFormats = formatPythonFloat(psarSetting.max_acceleration);
-          const accelFormats = formatPythonFloat(psarSetting.acceleration);
-
-          // Try all combinations of formats (most likely first)
-          for (const maxAccelStr of maxAccelFormats) {
-            for (const accelStr of accelFormats) {
-              const psarKey = `psar:${symbol}:${intervalStr}:${maxAccelStr}_${accelStr}`;
-              console.log(`🔍 [getData_redisv2] Checking PSAR key: ${psarKey}`);
-              psarDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, psarKey, lastNCandles);
-              if (psarDataMap) {
-                console.log(`✅ [getData_redisv2] Found PSAR data (${psarDataMap.size} entries)`);
-                break;
-              }
+          const ps = psarSettings[0];
+          for (const maxStr of formatPythonFloat(ps.max_acceleration)) {
+            for (const accStr of formatPythonFloat(ps.acceleration)) {
+              psarDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, `psar:${symbol}:${intervalStr}:${maxStr}_${accStr}`, lastNCandles);
+              if (psarDataMap) break;
             }
             if (psarDataMap) break;
           }
-
-          // Fallback: if psar_settings key didn't match, scan for any psar key for this symbol/interval
-          if (!psarDataMap) {
-            console.log(`⚠️ [getData_redisv2] PSAR data not found with settings key, scanning for any psar key...`);
-            const redisClient = getRedisClient();
-            const psarPattern = `psar:${symbol}:${intervalStr}:*`;
-            const matchingKeys = await redisClient.keys(psarPattern);
-            if (matchingKeys && matchingKeys.length > 0) {
-              console.log(`🔍 [getData_redisv2] Found ${matchingKeys.length} PSAR key(s): ${matchingKeys.join(', ')}`);
-              // Use the first matching key
-              psarDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, matchingKeys[0], lastNCandles);
-              if (psarDataMap) {
-                console.log(`✅ [getData_redisv2] PSAR data from fallback key (${psarDataMap.size} entries)`);
-              }
-            } else {
-              console.log(`⚠️ [getData_redisv2] No PSAR keys found for ${symbol} ${intervalStr}`);
-            }
+        }
+        // Fallback: scan for any psar key
+        if (!psarDataMap) {
+          const rc = getRedisClient();
+          const keys = await rc.keys(`psar:${symbol}:${intervalStr}:*`);
+          if (keys && keys.length > 0) {
+            psarDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, keys[0], lastNCandles);
           }
         }
+        // Discard stale data — frontend will fall through to computeIndicator
+        if (psarDataMap && isIndicatorStale(psarDataMap)) psarDataMap = null;
+      } catch (e) { console.log(`[getData_redisv2] PSAR lookup error:`, e.message); }
 
+      // Stochastic lookup
+      try {
+        const [stochSettings] = await db.sequelize.query(`SELECT period, k_avg, d_avg FROM fast_stoch_settings LIMIT 1;`);
         if (stochSettings && stochSettings.length > 0) {
-          const stochSetting = stochSettings[0];
-          // Helper function to format numbers like Python f-strings
-          const formatPythonFloat = (val) => {
-            const num = parseFloat(val);
-            // Based on Redis: "14.0_3.0_3.0" - integers stored as "14.0"
-            if (Number.isInteger(num)) {
-              return [`${num}.0`, num.toString()]; // Try "14.0" first (matches Redis format)
-            }
-            // For decimals, remove trailing zeros
-            return [num.toString().replace(/\.?0+$/, '')];
-          };
-
-          const periodFormats = formatPythonFloat(stochSetting.period);
-          const kAvgFormats = formatPythonFloat(stochSetting.k_avg);
-          const dAvgFormats = formatPythonFloat(stochSetting.d_avg);
-
-          // Try all combinations of formats (most likely first)
-          for (const periodStr of periodFormats) {
-            for (const kAvgStr of kAvgFormats) {
-              for (const dAvgStr of dAvgFormats) {
-                const stochKey = `stoch_data:${symbol}:${intervalStr}:${periodStr}_${kAvgStr}_${dAvgStr}`;
-                console.log(`🔍 [getData_redisv2] Checking Stochastic key: ${stochKey}`);
-                stochDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, stochKey, lastNCandles);
-                if (stochDataMap) {
-                  console.log(`✅ [getData_redisv2] Found Stochastic data (${stochDataMap.size} entries)`);
-                  break;
-                }
+          const ss = stochSettings[0];
+          for (const pStr of formatPythonFloat(ss.period)) {
+            for (const kStr of formatPythonFloat(ss.k_avg)) {
+              for (const dStr of formatPythonFloat(ss.d_avg)) {
+                stochDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, `stoch_data:${symbol}:${intervalStr}:${pStr}_${kStr}_${dStr}`, lastNCandles);
+                if (stochDataMap) break;
               }
               if (stochDataMap) break;
             }
             if (stochDataMap) break;
           }
-
-          // Fallback: scan for any stoch_data key for this symbol/interval
-          if (!stochDataMap) {
-            console.log(`⚠️ [getData_redisv2] Stochastic data not found with settings key, scanning...`);
-            const rc = getRedisClient();
-            const stochPattern = `stoch_data:${symbol}:${intervalStr}:*`;
-            const stochMatchingKeys = await rc.keys(stochPattern);
-            if (stochMatchingKeys && stochMatchingKeys.length > 0) {
-              console.log(`🔍 [getData_redisv2] Found ${stochMatchingKeys.length} stoch key(s): ${stochMatchingKeys.join(', ')}`);
-              stochDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, stochMatchingKeys[0], lastNCandles);
-              if (stochDataMap) {
-                console.log(`✅ [getData_redisv2] Stoch data from fallback key (${stochDataMap.size} entries)`);
-              }
-            } else {
-              console.log(`⚠️ [getData_redisv2] No stoch keys found for ${symbol} ${intervalStr}`);
-            }
+        }
+        // Fallback: scan for any stoch key
+        if (!stochDataMap) {
+          const rc = getRedisClient();
+          const keys = await rc.keys(`stoch_data:${symbol}:${intervalStr}:*`);
+          if (keys && keys.length > 0) {
+            stochDataMap = await getIndicatorDataBySymbol(symbol, intervalStr, keys[0], lastNCandles);
           }
         }
+        // Discard stale data — frontend will fall through to computeIndicator
+        if (stochDataMap && isIndicatorStale(stochDataMap)) stochDataMap = null;
+      } catch (e) { console.log(`[getData_redisv2] Stoch lookup error:`, e.message); }
 
-        // Merge indicator data into chartData
-        if (psarDataMap || stochDataMap) {
-          let psarMatchedCount = 0;
-          let stochMatchedCount = 0;
-
-          chartData = chartData.map(row => {
-            const timestamp = row.datetime;
-            const updatedRow = { ...row };
-
-            // Normalize timestamp format for matching (remove any extra spaces, ensure consistent format)
-            const normalizedTimestamp = timestamp ? timestamp.trim() : null;
-
-            // Add PSAR data if available
-            if (psarDataMap && normalizedTimestamp) {
-              if (psarDataMap.has(normalizedTimestamp)) {
-                const psarEntry = psarDataMap.get(normalizedTimestamp);
-                // Use !== undefined check to properly handle 0, null, and false values
-                updatedRow.psar_value = psarEntry.psar_value !== undefined ? psarEntry.psar_value : psarEntry.value;
-                updatedRow.psar_signal = psarEntry.signal !== undefined ? psarEntry.signal : null;
-                psarMatchedCount++;
-              }
-            }
-
-            // Add Stochastic data if available
-            if (stochDataMap && normalizedTimestamp) {
-              if (stochDataMap.has(normalizedTimestamp)) {
-                const stochEntry = stochDataMap.get(normalizedTimestamp);
-                // Use !== undefined check to properly handle 0, null, and false values
-                updatedRow.stoch_k = stochEntry.k_value !== undefined ? stochEntry.k_value : stochEntry.value;
-                updatedRow.stoch_d = stochEntry.d_value !== undefined ? stochEntry.d_value : stochEntry.value2;
-                stochMatchedCount++;
-              }
-            }
-
-            return updatedRow;
-          });
-
-          // Log merge statistics for debugging
-          console.log(`📊 [getData_redisv2] Merge statistics: PSAR matched ${psarMatchedCount}/${chartData.length}, Stochastic matched ${stochMatchedCount}/${chartData.length}`);
-
-          // Log sample of merged data for debugging
-          if (chartData.length > 0) {
-            const firstEntry = chartData[0];
-            const lastEntry = chartData[chartData.length - 1];
-
-            console.log(`📊 [getData_redisv2] Sample merged data (first entry):`, {
-              datetime: firstEntry.datetime,
-              has_psar_value: firstEntry.psar_value !== undefined,
-              psar_value: firstEntry.psar_value,
-              has_psar_signal: firstEntry.psar_signal !== undefined,
-              psar_signal: firstEntry.psar_signal,
-              has_stoch_k: firstEntry.stoch_k !== undefined,
-              stoch_k: firstEntry.stoch_k,
-              has_stoch_d: firstEntry.stoch_d !== undefined,
-              stoch_d: firstEntry.stoch_d
-            });
-            console.log(`📊 [getData_redisv2] Sample merged data (last entry):`, {
-              datetime: lastEntry.datetime,
-              has_psar_value: lastEntry.psar_value !== undefined,
-              psar_value: lastEntry.psar_value,
-              has_psar_signal: lastEntry.psar_signal !== undefined,
-              psar_signal: lastEntry.psar_signal,
-              has_stoch_k: lastEntry.stoch_k !== undefined,
-              stoch_k: lastEntry.stoch_k,
-              has_stoch_d: lastEntry.stoch_d !== undefined,
-              stoch_d: lastEntry.stoch_d
-            });
-
-            // Log sample indicator map keys for comparison
-            if (psarDataMap && psarDataMap.size > 0) {
-              const samplePsarKeys = Array.from(psarDataMap.keys()).slice(0, 3);
-              console.log(`📊 [getData_redisv2] Sample PSAR map keys:`, samplePsarKeys);
-            }
-            if (stochDataMap && stochDataMap.size > 0) {
-              const sampleStochKeys = Array.from(stochDataMap.keys()).slice(0, 3);
-              console.log(`📊 [getData_redisv2] Sample Stochastic map keys:`, sampleStochKeys);
-            }
+      // Merge indicators into chart data
+      if (psarDataMap || stochDataMap) {
+        let psarMatched = 0, stochMatched = 0;
+        chartData = chartData.map(row => {
+          const ts = row.datetime ? row.datetime.trim() : null;
+          const updated = { ...row };
+          if (psarDataMap && ts && psarDataMap.has(ts)) {
+            const p = psarDataMap.get(ts);
+            updated.psar_value = p.psar_value !== undefined ? p.psar_value : p.value;
+            updated.psar_signal = p.signal !== undefined ? p.signal : null;
+            psarMatched++;
           }
-        }
-
-        return sendResponse({
-          res,
-          success: true,
-          message: psarDataMap || stochDataMap
-            ? "Data retrieved successfully from candle_data with indicators"
-            : "Data retrieved successfully from candle_data (OHLC + HA only)",
-          response_code: ResponseCodes.GET_SUCCESS,
-          data: chartData,
+          if (stochDataMap && ts && stochDataMap.has(ts)) {
+            const s = stochDataMap.get(ts);
+            updated.stoch_k = s.k_value !== undefined ? s.k_value : s.value;
+            updated.stoch_d = s.d_value !== undefined ? s.d_value : s.value2;
+            stochMatched++;
+          }
+          return updated;
         });
+        console.log(`[getData_redisv2] Indicators merged: PSAR ${psarMatched}/${chartData.length}, Stoch ${stochMatched}/${chartData.length}`);
       }
-
-      // FALLBACK: candle_data doesn't exist - use regular flow
-      console.log(`⚠️ [getData_redisv2] candle_data not found - falling back to regular flow for ${symbol} ${intervalStr}`);
-
-      // Fetch pre-resampled data (including 1-minute)
-      console.log(`🔍 [getData_redisv2] Fetching pre-resampled data for ${symbol} ${intervalStr}`);
-      let results = await getResampledOhlcBySymbol(symbol, intervalStr);
-
-      // FALLBACK: If pre-resampled data doesn't exist (e.g., 1-hour not configured), 
-      // fetch 1-minute data and resample on-the-fly
-      if (!results || results.length === 0) {
-        console.log(`⚠️ [getData_redisv2] Pre-resampled data not found for ${symbol} ${intervalStr} - attempting on-the-fly resampling from 1-minute data`);
-
-        // Only attempt on-the-fly resampling for non-1-minute intervals
-        if (intervalStr !== '1minute') {
-          // Fetch 1-minute data from Redis
-          const oneMinData = await getOhlcBySymbol(symbol);
-
-          // Only fetch from Kite if 1-minute data is not present in Redis
-          if (!oneMinData || oneMinData.length === 0) {
-            console.log(`⚠️ [getData_redisv2] No 1-minute data in Redis - fetching from Kite`);
-
-            // Fetch from Kite historical API
-            try {
-              console.log(`📡 [getData_redisv2] Fetching last 5 days of 1-minute data from Kite for ${symbol}`);
-
-              // Get instrument token from database
-              const tokenResult = await db.sequelize.query(
-                "SELECT instrument_token FROM instruments WHERE tradingsymbol = :symbol",
-                {
-                  replacements: { symbol: symbol?.trim() },
-                  type: db.sequelize.QueryTypes.SELECT,
-                }
-              );
-
-              console.log(`🔍 [getData_redisv2] Token query result for ${symbol}:`, tokenResult);
-
-              if (!tokenResult || !Array.isArray(tokenResult) || tokenResult.length === 0 || !tokenResult[0]) {
-                console.log(`❌ [getData_redisv2] Instrument not found for symbol: ${symbol}`);
-                return sendResponse({
-                  res,
-                  success: false,
-                  message: "Instrument not found",
-                  response_code: ResponseCodes.GET_NOT_FOUND,
-                });
-              }
-
-              const token = tokenResult[0].instrument_token;
-
-              if (!token) {
-                console.log(`❌ [getData_redisv2] Instrument token is null/undefined for symbol: ${symbol}`);
-                return sendResponse({
-                  res,
-                  success: false,
-                  message: "Instrument token not found",
-                  response_code: ResponseCodes.GET_NOT_FOUND,
-                });
-              }
-
-              // Calculate date range (last 5 days)
-              const to_date = new Date();
-              const from_date = new Date(to_date);
-              from_date.setDate(to_date.getDate() - 28);
-
-              const from_date_str = from_date.toISOString().slice(0, 19).replace("T", " ");
-              const to_date_str = to_date.toISOString().slice(0, 19).replace("T", " ");
-
-              console.log(`📡 [getData_redisv2] Fetching from ${from_date_str} to ${to_date_str} for token ${token}`);
-
-              // Fetch 1-minute data from Kite (always request 1-minute data)
-              const kiteData = await fetchHistoricalData(token, "minute", from_date_str, to_date_str);
-
-              if (!kiteData || kiteData.length === 0) {
-                console.log(`❌ [getData_redisv2] No data returned from Kite API for ${symbol} (token: ${token})`);
-                console.log(`   Date range: ${from_date_str} to ${to_date_str}`);
-                console.log(`   Note: Newly added symbols may not have historical data yet. Wait for day_start_async.py to download data.`);
-                return sendResponse({
-                  res,
-                  success: false,
-                  message: `No historical data found from Kite API for ${symbol}. Symbol may be too new or data not available yet.`,
-                  response_code: ResponseCodes.GET_NOT_FOUND,
-                });
-              }
-
-              console.log(`✅ [getData_redisv2] Fetched ${kiteData.length} 1-minute candles from Kite`);
-
-              // Convert Kite data to format expected by resampleOHLCData
-              const formattedKiteData = kiteData.map(row => ({
-                datetime: row.datetime,
-                open: parseFloat(row.open),
-                high: parseFloat(row.high),
-                low: parseFloat(row.low),
-                close: parseFloat(row.close),
-                volume: parseFloat(row.volume || 0)
-              }));
-
-              // Forward-fill missing minutes
-              const forwardFilledKiteData = DataController.forwardFillMissingMinutes(formattedKiteData);
-
-              // Convert interval string to resample minutes
-              const resampleMinutes = parseInt(intervalStr.replace('minute', '')) || 1;
-
-              // Resample to requested interval
-              results = DataController.resampleOHLCData(forwardFilledKiteData, resampleMinutes);
-
-              if (!results || results.length === 0) {
-                return sendResponse({
-                  res,
-                  success: false,
-                  message: `No data after resampling to ${resampleMinutes}-minute intervals`,
-                  response_code: ResponseCodes.GET_NOT_FOUND,
-                });
-              }
-
-              console.log(`✅ [getData_redisv2] Successfully resampled Kite data to ${resampleMinutes}-minute intervals (${results.length} candles)`);
-            } catch (kiteError) {
-              console.error(`❌ [getData_redisv2] Error fetching from Kite:`, kiteError);
-              return sendResponse({
-                res,
-                success: false,
-                message: "Error fetching historical data from Kite API",
-                response_code: ResponseCodes.GET_ERROR,
-                error: kiteError.message,
-              });
-            }
-          } else {
-            // Redis has 1-minute data, use it for resampling
-            if ((!results || results.length === 0) && oneMinData && oneMinData.length > 0) {
-              // Convert interval string to resample minutes
-              const resampleMinutes = parseInt(intervalStr.replace('minute', '')) || 1;
-
-              console.log(`🔄 [getData_redisv2] Resampling ${oneMinData.length} 1-minute candles to ${resampleMinutes}-minute intervals`);
-
-              // Convert 1-minute data to format expected by resampleOHLCData
-              const formattedData = oneMinData.map(row => ({
-                datetime: row.datetime instanceof Date
-                  ? row.datetime.toISOString().slice(0, 19).replace('T', ' ')
-                  : (typeof row.datetime === 'string' ? row.datetime : new Date(row.datetime).toISOString().slice(0, 19).replace('T', ' ')),
-                open: parseFloat(row.open),
-                high: parseFloat(row.high),
-                low: parseFloat(row.low),
-                close: parseFloat(row.close),
-                volume: parseFloat(row.volume || 0)
-              }));
-
-              // Forward-fill missing minutes (same as getDataV2)
-              const forwardFilledData = DataController.forwardFillMissingMinutes(formattedData);
-
-              // Resample to requested interval
-              results = DataController.resampleOHLCData(forwardFilledData, resampleMinutes);
-
-              if (!results || results.length === 0) {
-                return sendResponse({
-                  res,
-                  success: false,
-                  message: `No data after resampling to ${resampleMinutes}-minute intervals`,
-                  response_code: ResponseCodes.GET_NOT_FOUND,
-                });
-              }
-
-              console.log(`✅ [getData_redisv2] Successfully resampled to ${resampleMinutes}-minute intervals (${results.length} candles)`);
-            } else if (!results || results.length === 0) {
-              return sendResponse({
-                res,
-                success: false,
-                message: "No historical data found (1-minute data also unavailable)",
-                response_code: ResponseCodes.GET_NOT_FOUND,
-              });
-            }
-          }
-        } else {
-          // For 1-minute interval, check if data is missing
-          const oneMinData = await getOhlcBySymbol(symbol);
-
-          // Only fetch from Kite if 1-minute data is not present in Redis
-          if (!oneMinData || oneMinData.length === 0) {
-            console.log(`⚠️ [getData_redisv2] No 1-minute data in Redis - fetching from Kite`);
-
-            try {
-              console.log(`📡 [getData_redisv2] Fetching last 5 days of 1-minute data from Kite for ${symbol}`);
-
-              // Get instrument token from database
-              const tokenResult = await db.sequelize.query(
-                "SELECT instrument_token FROM instruments WHERE tradingsymbol = :symbol",
-                {
-                  replacements: { symbol: symbol?.trim() },
-                  type: db.sequelize.QueryTypes.SELECT,
-                }
-              );
-
-              console.log(`🔍 [getData_redisv2] Token query result for ${symbol}:`, tokenResult);
-
-              if (!tokenResult || !Array.isArray(tokenResult) || tokenResult.length === 0 || !tokenResult[0]) {
-                console.log(`❌ [getData_redisv2] Instrument not found for symbol: ${symbol}`);
-                return sendResponse({
-                  res,
-                  success: false,
-                  message: "Instrument not found",
-                  response_code: ResponseCodes.GET_NOT_FOUND,
-                });
-              }
-
-              const token = tokenResult[0].instrument_token;
-
-              if (!token) {
-                console.log(`❌ [getData_redisv2] Instrument token is null/undefined for symbol: ${symbol}`);
-                return sendResponse({
-                  res,
-                  success: false,
-                  message: "Instrument token not found",
-                  response_code: ResponseCodes.GET_NOT_FOUND,
-                });
-              }
-
-              // Calculate date range (last 5 days)
-              const to_date = new Date();
-              const from_date = new Date(to_date);
-              from_date.setDate(to_date.getDate() - 28);
-
-              const from_date_str = from_date.toISOString().slice(0, 19).replace("T", " ");
-              const to_date_str = to_date.toISOString().slice(0, 19).replace("T", " ");
-
-              console.log(`📡 [getData_redisv2] Fetching from ${from_date_str} to ${to_date_str} for token ${token}`);
-
-              // Fetch 1-minute data from Kite (always request 1-minute data)
-              const kiteData = await fetchHistoricalData(token, "minute", from_date_str, to_date_str);
-
-              if (!kiteData || kiteData.length === 0) {
-                console.log(`❌ [getData_redisv2] No data returned from Kite API for ${symbol} (token: ${token})`);
-                console.log(`   Date range: ${from_date_str} to ${to_date_str}`);
-                console.log(`   Note: Newly added symbols may not have historical data yet. Wait for day_start_async.py to download data.`);
-                return sendResponse({
-                  res,
-                  success: false,
-                  message: `No historical data found from Kite API for ${symbol}. Symbol may be too new or data not available yet.`,
-                  response_code: ResponseCodes.GET_NOT_FOUND,
-                });
-              }
-
-              console.log(`✅ [getData_redisv2] Fetched ${kiteData.length} 1-minute candles from Kite`);
-
-              // Convert Kite data to format expected
-              const formattedKiteData = kiteData.map(row => ({
-                datetime: row.datetime,
-                open: parseFloat(row.open),
-                high: parseFloat(row.high),
-                low: parseFloat(row.low),
-                close: parseFloat(row.close),
-                volume: parseFloat(row.volume || 0)
-              }));
-
-              // Forward-fill missing minutes for consistency
-              const forwardFilledKiteData = DataController.forwardFillMissingMinutes(formattedKiteData);
-
-              // For 1-minute interval, use data as-is (no resampling needed)
-              results = forwardFilledKiteData;
-            } catch (kiteError) {
-              console.error(`❌ [getData_redisv2] Error fetching from Kite:`, kiteError);
-              return sendResponse({
-                res,
-                success: false,
-                message: "Error fetching historical data from Kite API",
-                response_code: ResponseCodes.GET_ERROR,
-                error: kiteError.message,
-              });
-            }
-          } else {
-            // Use Redis data as-is for 1-minute interval
-            results = oneMinData.map(row => ({
-              datetime: row.datetime instanceof Date
-                ? row.datetime.toISOString().slice(0, 19).replace('T', ' ')
-                : (typeof row.datetime === 'string' ? row.datetime : new Date(row.datetime).toISOString().slice(0, 19).replace('T', ' ')),
-              open: parseFloat(row.open),
-              high: parseFloat(row.high),
-              low: parseFloat(row.low),
-              close: parseFloat(row.close),
-              volume: parseFloat(row.volume || 0)
-            }));
-          }
-
-          if (!results || results.length === 0) {
-            return sendResponse({
-              res,
-              success: false,
-              message: "No historical data found",
-              response_code: ResponseCodes.GET_NOT_FOUND,
-            });
-          }
-        }
-      }
-
-      const openPrices = results.map((row) => parseFloat(row.open));
-      const highPrices = results.map((row) => parseFloat(row.high));
-      const lowPrices = results.map((row) => parseFloat(row.low));
-      const closePrices = results.map((row) => parseFloat(row.close));
-
-      // Ensure the lengths match before calculations
-      if (
-        [
-          openPrices.length,
-          highPrices.length,
-          lowPrices.length,
-          closePrices.length,
-        ].some((length) => length !== openPrices.length)
-      ) {
-        throw new Error("Mismatched lengths in historical data");
-      }
-
-      // Calculate Heikin-Ashi values
-      const { haOpen, haHigh, haLow, haClose } = calcHeikinAshi(
-        openPrices,
-        highPrices,
-        lowPrices,
-        closePrices
-      );
-
-      // Build the chart data including Heikin-Ashi values
-      chartData = results.map((row, index) => {
-        // Format datetime consistently (handle both Date objects and strings)
-        let formattedDatetime;
-        if (row.datetime instanceof Date) {
-          const dt = row.datetime;
-          formattedDatetime = dt.getFullYear() + '-' +
-            String(dt.getMonth() + 1).padStart(2, '0') + '-' +
-            String(dt.getDate()).padStart(2, '0') + ' ' +
-            String(dt.getHours()).padStart(2, '0') + ':' +
-            String(dt.getMinutes()).padStart(2, '0') + ':' +
-            String(dt.getSeconds()).padStart(2, '0');
-        } else {
-          formattedDatetime = row.datetime;
-        }
-
-        return {
-          datetime: formattedDatetime,
-          open: row.open,
-          high: row.high,
-          low: row.low,
-          close: row.close,
-          volume: row.volume || 0,
-          ha_open: haOpen[index],
-          ha_high: haHigh[index],
-          ha_low: haLow[index],
-          ha_close: haClose[index]
-        };
-      });
 
       return sendResponse({
         res,
         success: true,
-        message: "Data retrieved successfully (OHLC + HA calculated on server)",
+        message: "Data retrieved successfully",
         response_code: ResponseCodes.GET_SUCCESS,
         data: chartData,
       });
     } catch (error) {
-      console.error("❌ [getData_redisv2] Error fetching historical data:", error);
+      console.error("[getData_redisv2] Error:", error);
       return sendResponse({
         res,
         success: false,
@@ -3386,24 +2960,91 @@ WHERE id = ?;
     console.log(`[compute-indicator] ${indicatorType} for ${symbol} ${intervalStr} params=${JSON.stringify(params)}`);
 
     try {
-      // 1. Fetch OHLC data from Redis (use same lastNCandles as getData_redisv2 to keep index alignment)
-      const candleData = await getCandleDataBySymbol(symbol, intervalStr, 50000);
-      if (!candleData || candleData.length === 0) {
+      // 1. Fetch 1min source data (same path as getData_redisv2 — works for ALL symbols/timeframes)
+      const resampleMinutes = parseInt(interval) || 1;
+      let oneMinData = await getOhlcBySymbol(symbol);
+
+      if (!oneMinData || oneMinData.length === 0) {
+        // Fallback: Kite API
+        try {
+          const tokenResult = await db.sequelize.query(
+            "SELECT instrument_token FROM instruments WHERE tradingsymbol = :symbol",
+            { replacements: { symbol: symbol?.trim() }, type: db.sequelize.QueryTypes.SELECT }
+          );
+          if (tokenResult?.length > 0 && tokenResult[0]?.instrument_token) {
+            const token = tokenResult[0].instrument_token;
+            const to_date = new Date();
+            const from_date = new Date(to_date);
+            from_date.setDate(to_date.getDate() - 28);
+            const kiteData = await fetchHistoricalData(token, "minute",
+              from_date.toISOString().slice(0, 19).replace("T", " "),
+              to_date.toISOString().slice(0, 19).replace("T", " ")
+            );
+            if (kiteData?.length > 0) {
+              oneMinData = kiteData.map(row => ({
+                datetime: row.datetime,
+                open: parseFloat(row.open), high: parseFloat(row.high),
+                low: parseFloat(row.low), close: parseFloat(row.close),
+                volume: parseFloat(row.volume || 0)
+              }));
+            }
+          }
+        } catch (kiteError) {
+          console.log(`[compute-indicator] Kite fallback error: ${kiteError.message}`);
+        }
+      } else {
+        // Redis returns Date objects — convert to IST strings
+        oneMinData = oneMinData.map(row => ({
+          datetime: row.datetime instanceof Date
+            ? moment(row.datetime).tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss')
+            : (typeof row.datetime === 'string' ? row.datetime : moment(row.datetime).tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss')),
+          open: parseFloat(row.open), high: parseFloat(row.high),
+          low: parseFloat(row.low), close: parseFloat(row.close),
+          volume: parseFloat(row.volume || 0)
+        }));
+      }
+
+      if (!oneMinData || oneMinData.length === 0) {
         return sendResponse({
           res, success: false,
-          message: `No candle data found for ${symbol} ${intervalStr}`,
+          message: `No data found for ${symbol}`,
           response_code: ResponseCodes.GET_NOT_FOUND,
         });
       }
 
-      const high = candleData.map(c => parseFloat(c.high));
-      const low = candleData.map(c => parseFloat(c.low));
-      const close = candleData.map(c => parseFloat(c.close));
-      const timestamps = candleData.map(c => c.datetime);
+      // 2. Resample to requested timeframe (same as getData_redisv2)
+      let ohlcData = oneMinData;
+      if (resampleMinutes > 1) {
+        ohlcData = DataController.resampleOHLCData(oneMinData, resampleMinutes);
+        if (!ohlcData || ohlcData.length === 0) {
+          return sendResponse({
+            res, success: false,
+            message: `No data after resampling to ${resampleMinutes}min`,
+            response_code: ResponseCodes.GET_NOT_FOUND,
+          });
+        }
+        console.log(`[compute-indicator] Resampled: ${ohlcData.length} ${resampleMinutes}min candles`);
+      }
 
-      // 2. Try Redis pre-calculated data first
+      const high = ohlcData.map(c => parseFloat(c.high));
+      const low = ohlcData.map(c => parseFloat(c.low));
+      const close = ohlcData.map(c => parseFloat(c.close));
+      const timestamps = ohlcData.map(c => typeof c.datetime === 'string' ? c.datetime : moment(c.datetime).tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss'));
+
+      // 2. Try Redis pre-calculated data first, fall back to local computation
       const redisClient = getRedisClient();
       let result = null;
+
+      // Helper: check if Redis data is stale (last N timestamps have no matches)
+      const isRedisDataStale = (dataMap, timestamps, checkCount = 20) => {
+        const tail = timestamps.slice(-checkCount);
+        const matched = tail.filter(ts => dataMap.has(ts)).length;
+        if (matched === 0) {
+          console.log(`[compute-indicator] Redis data stale: 0/${checkCount} recent timestamps matched`);
+          return true;
+        }
+        return false;
+      };
 
       if (indicatorType === 'psar') {
         const accel = parseFloat(params.acceleration || 0.02);
@@ -3422,7 +3063,7 @@ WHERE id = ?;
             if (Math.abs(keyMax - maxAccel) < 0.001 && Math.abs(keyAccel - accel) < 0.001) {
               console.log(`[compute-indicator] PSAR Redis hit: ${key}`);
               const dataMap = await getIndicatorDataBySymbol(symbol, intervalStr, key);
-              if (dataMap) {
+              if (dataMap && !isRedisDataStale(dataMap, timestamps)) {
                 // Build arrays aligned to timestamps
                 const values = [];
                 const signals = [];
@@ -3469,7 +3110,7 @@ WHERE id = ?;
             if (Math.abs(keyPeriod - period) < 0.1 && Math.abs(keyK - kSmoothing) < 0.1 && Math.abs(keyD - dPeriod) < 0.1) {
               console.log(`[compute-indicator] Stoch Redis hit: ${key}`);
               const dataMap = await getIndicatorDataBySymbol(symbol, intervalStr, key);
-              if (dataMap) {
+              if (dataMap && !isRedisDataStale(dataMap, timestamps)) {
                 const kValues = [];
                 const dValues = [];
                 for (const ts of timestamps) {
@@ -3511,7 +3152,7 @@ WHERE id = ?;
             if (Math.abs(keyPeriod - period) < 0.1 && Math.abs(keyStdev - stdMultiplier) < 0.01) {
               console.log(`[compute-indicator] LRC Redis hit: ${key}`);
               const dataMap = await getIndicatorDataBySymbol(symbol, intervalStr, key, 50000);
-              if (dataMap) {
+              if (dataMap && !isRedisDataStale(dataMap, timestamps)) {
                 const lrlValues = [];
                 const uclValues = [];
                 const lclValues = [];

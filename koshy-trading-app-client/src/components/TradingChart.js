@@ -94,6 +94,12 @@ function TradingChart({ instrumentToken, tickInterval }) {
   const minOptionValueRef = useRef(1);
   // ref to chart2 so non-state code paths can access it
   const chart2Ref = useRef(null);
+  // Refs for indicator settings — fetchData/refreshData read these so toggling
+  // indicators doesn't recreate the callbacks and trigger full chart reloads
+  const psarSettingsRef = useRef({ enabled: false, acceleration: 0.03, maxAcceleration: 0.07, upColor: '#00ff00', downColor: '#ff0000' });
+  const stochSettingsRef = useRef({ stochEnabled: false, stoch_period: 100, k_avg: 20, d_avg: 20 });
+  const lrcSettingsRef = useRef({ lrcenabled: false, period: 100, standardDeviation: 2 });
+  const datetimeArrayRef = useRef([]);
 
   const [LRLData, setLRLData] = useState([]);
   const [UCLData, setUCLData] = useState([]);
@@ -109,6 +115,12 @@ function TradingChart({ instrumentToken, tickInterval }) {
     if (symbolValue === undefined || minOptionValue === undefined) {
       return;
     }
+
+    // Read indicator settings from refs (not closure) so toggling indicators
+    // doesn't recreate this callback and trigger a full chart reload
+    const { enabled, acceleration, maxAcceleration, upColor, downColor } = psarSettingsRef.current;
+    const { stochEnabled, stoch_period, k_avg, d_avg } = stochSettingsRef.current;
+    const { lrcenabled, period, standardDeviation } = lrcSettingsRef.current;
 
     try {
       // Add timestamp to force fresh data
@@ -138,6 +150,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
         }));
 
         const datetimeArray = ohlcData.map((dataPoint) => dataPoint.datetime);
+        datetimeArrayRef.current = datetimeArray;
         const closeArray = ohlcData.map((dataPoint) => dataPoint.close);
         const highArray = ohlcData.map((dataPoint) => dataPoint.high);
         const lowArray = ohlcData.map((dataPoint) => dataPoint.low);
@@ -354,8 +367,9 @@ function TradingChart({ instrumentToken, tickInterval }) {
     } catch (error) {
       log("Error fetching trading data:", error);
     }
-  }, [symbolValue, minOptionValue, enabled, acceleration, maxAcceleration, upColor, downColor,
-    tickInterval, stochEnabled, stoch_period, k_avg, d_avg, lrcenabled, period, standardDeviation]);
+  }, [symbolValue, minOptionValue, tickInterval]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // ^ Indicator settings intentionally read from refs, not deps
 
   // Keep tradingDataRef in sync so the WS closure always sees the latest data
   useEffect(() => {
@@ -366,9 +380,128 @@ function TradingChart({ instrumentToken, tickInterval }) {
     minOptionValueRef.current = minOptionValue;
   }, [minOptionValue]);
 
+  // Keep indicator refs in sync with Redux state
   useEffect(() => {
-    fetchData();
-  }, [symbolValue, fetchData]);
+    psarSettingsRef.current = { enabled, acceleration, maxAcceleration, upColor, downColor };
+  }, [enabled, acceleration, maxAcceleration, upColor, downColor]);
+
+  useEffect(() => {
+    stochSettingsRef.current = { stochEnabled, stoch_period, k_avg, d_avg };
+  }, [stochEnabled, stoch_period, k_avg, d_avg]);
+
+  useEffect(() => {
+    lrcSettingsRef.current = { lrcenabled, period, standardDeviation };
+  }, [lrcenabled, period, standardDeviation]);
+
+  // ─── Indicator-specific useEffects ────────────────────────────────────────
+  // These handle indicator toggles WITHOUT triggering a full chart reload.
+  // On first render, datetimeArrayRef is empty so they skip (fetchData handles it).
+
+  // LRC toggle
+  useEffect(() => {
+    const datetimeArray = datetimeArrayRef.current;
+    if (!datetimeArray || datetimeArray.length === 0) return;
+
+    if (lrcenabled) {
+      (async () => {
+        console.log('📊 LRC toggle: Computing LRC via backend API');
+        const lrcResp = await ChartApis.computeIndicator({
+          symbol: symbolValue, interval: minOptionValue,
+          indicatorType: 'lrc',
+          params: { period, stdev: standardDeviation },
+        });
+        if (lrcResp?.success && lrcResp.data) {
+          setLRLData(datetimeArray.map((dt, i) => ({
+            time: Math.floor(new Date(dt).getTime() / 1000),
+            value: lrcResp.data.lrl[i],
+          })).filter(e => e.value !== null));
+          setUCLData(datetimeArray.map((dt, i) => ({
+            time: Math.floor(new Date(dt).getTime() / 1000),
+            value: lrcResp.data.ucl[i],
+          })).filter(e => e.value !== null));
+          setLCLData(datetimeArray.map((dt, i) => ({
+            time: Math.floor(new Date(dt).getTime() / 1000),
+            value: lrcResp.data.lcl[i],
+          })).filter(e => e.value !== null));
+        }
+      })();
+    } else {
+      setLRLData([]);
+      setUCLData([]);
+      setLCLData([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lrcenabled, period, standardDeviation]);
+
+  // PSAR toggle
+  useEffect(() => {
+    const datetimeArray = datetimeArrayRef.current;
+    if (!datetimeArray || datetimeArray.length === 0) return;
+
+    if (enabled) {
+      (async () => {
+        console.log('📊 PSAR toggle: Computing PSAR via backend API');
+        const psarResp = await ChartApis.computeIndicator({
+          symbol: symbolValue, interval: minOptionValue,
+          indicatorType: 'psar',
+          params: { acceleration: parseFloat(acceleration), max: parseFloat(maxAcceleration) },
+        });
+        if (psarResp?.success && psarResp.data) {
+          const psarSignals = psarResp.data.signals;
+          const newUp = datetimeArray
+            .map((dt, i) => psarSignals[i] === 1 ? {
+              time: Math.floor(new Date(dt).getTime() / 1000),
+              position: "belowBar", color: upColor, shape: "arrowUp", text: "", size: 1,
+            } : null).filter(Boolean);
+          const newDown = datetimeArray
+            .map((dt, i) => psarSignals[i] === -1 ? {
+              time: Math.floor(new Date(dt).getTime() / 1000),
+              position: "aboveBar", color: downColor, shape: "arrowDown", text: "", size: 1,
+            } : null).filter(Boolean);
+          // Keep existing alert markers (size === 2), replace PSAR markers
+          setMarkers(prev => {
+            const alertMarkers = prev.filter(m => m.size === 2);
+            return [...alertMarkers, ...newUp, ...newDown].sort((a, b) => a.time - b.time);
+          });
+        }
+      })();
+    } else {
+      // Remove PSAR markers, keep alert markers
+      setMarkers(prev => prev.filter(m => m.size === 2));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, acceleration, maxAcceleration, upColor, downColor]);
+
+  // Stochastic toggle
+  useEffect(() => {
+    const datetimeArray = datetimeArrayRef.current;
+    if (!datetimeArray || datetimeArray.length === 0) return;
+
+    if (stochEnabled) {
+      (async () => {
+        console.log('📊 Stoch toggle: Computing Stochastic via backend API');
+        const stochResp = await ChartApis.computeIndicator({
+          symbol: symbolValue, interval: minOptionValue,
+          indicatorType: 'stoch',
+          params: { period: stoch_period, k_smoothing: k_avg, d_period: d_avg },
+        });
+        if (stochResp?.success && stochResp.data) {
+          setStochasticsK(datetimeArray.map((dt, i) => ({
+            time: Math.floor(new Date(dt).getTime() / 1000),
+            value: stochResp.data.k_values[i],
+          })).filter(e => e.value !== null && e.value !== undefined && !isNaN(e.value)));
+          setStochasticsD(datetimeArray.map((dt, i) => ({
+            time: Math.floor(new Date(dt).getTime() / 1000),
+            value: stochResp.data.d_values[i],
+          })).filter(e => e.value !== null && e.value !== undefined && !isNaN(e.value)));
+        }
+      })();
+    } else {
+      setStochasticsK([]);
+      setStochasticsD([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stochEnabled, stoch_period, k_avg, d_avg]);
 
   // ─── Live WebSocket streaming ─────────────────────────────────────────────
   useEffect(() => {
@@ -852,6 +985,12 @@ function TradingChart({ instrumentToken, tickInterval }) {
       return;
     }
 
+    // Read indicator settings from refs (same pattern as fetchData)
+    const { enabled, acceleration, maxAcceleration, upColor, downColor } = psarSettingsRef.current;
+    const { stochEnabled, stoch_period, k_avg, d_avg } = stochSettingsRef.current;
+    const { lrcenabled, period, standardDeviation } = lrcSettingsRef.current;
+    const tradingData = tradingDataRef.current;
+
     try {
       const [response] = await Promise.all([
         ChartApis.getSymbolChartData({
@@ -887,6 +1026,7 @@ function TradingChart({ instrumentToken, tickInterval }) {
         }));
         //console.log('ohlcData', ohlcData);
         const datetimeArray = ohlcData.map((dataPoint) => dataPoint.datetime);
+        datetimeArrayRef.current = datetimeArray;
         const closeArray = ohlcData.map((dataPoint) => dataPoint.close);
         const highArray = ohlcData.map((dataPoint) => dataPoint.high);
         const lowArray = ohlcData.map((dataPoint) => dataPoint.low);
@@ -1105,8 +1245,9 @@ function TradingChart({ instrumentToken, tickInterval }) {
     } catch (error) {
       log("Error refreshing trading data:", error);
     }
-  }, [symbolValue, minOptionValue, enabled, acceleration, maxAcceleration, upColor, downColor,
-    tickInterval, stochEnabled, stoch_period, k_avg, d_avg, lrcenabled, period, standardDeviation, tradingData]);
+  }, [symbolValue, minOptionValue, tickInterval]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // ^ Indicator settings + tradingData read from refs, not deps
 
   const setupInterval = () => {
     if (intervalInstance) clearInterval(intervalInstance);
